@@ -12,14 +12,15 @@
   var gl = canvas.getContext('webgl2');
   if (!gl) {
     var el = document.getElementById('compat-warn');
-    if (el) el.style.display = 'flex';
-    var app = document.getElementById('app');
-    if (app) {
-      var vp = document.getElementById('viewport');
-      if (vp) vp.style.display = 'none';
-      var tb = document.getElementById('toolbar');
-      if (tb) tb.style.display = 'none';
+    if (el) {
+      el.style.display = 'flex';
+      el.querySelector('h2').textContent = '⚠️ 浏览器不兼容';
+      el.querySelector('p').textContent = '您的浏览器不支持 WebGL2，无法运行风洞模拟器。请升级浏览器。';
     }
+    var vp = document.getElementById('viewport');
+    if (vp) vp.style.display = 'none';
+    var tb = document.getElementById('toolbar');
+    if (tb) tb.style.display = 'none';
     throw new Error('WebGL2 not supported');
   }
 })();
