@@ -717,6 +717,12 @@ WindTunnelApp.prototype.loadModel = function (name) {
   if (name === 'sphere') mesh = this.createSphere();
   else if (name === 'car') mesh = this.createCar();
   else if (name === 'airfoil') mesh = this.createAirfoil();
+  else if (name === 'cube') mesh = this.createCube();
+  else if (name === 'cylinder') mesh = this.createCylinder();
+  else if (name === 'f1') mesh = this.createF1Car();
+  else if (name === 'bridge') mesh = this.createBridge();
+  else if (name === 'airplane') mesh = this.createAirplane();
+  else mesh = this.createSphere();
   this.currentModelMesh = mesh;
   this.currentModel = name;
   this.voxelizeAndLoad(mesh);
@@ -792,6 +798,204 @@ WindTunnelApp.prototype.createAirfoil = function () {
     var len=Math.sqrt(slope*slope+1);
     norms.push(slope/len,1/len,0);
   }
+  return { vertices: verts, faces: faces, normals: norms };
+};
+
+// ---- Cube ----
+WindTunnelApp.prototype.createCube = function () {
+  var s = 0.28;
+  var verts = [
+    -s,-s,-s, s,-s,-s, s,s,-s, -s,s,-s,
+    -s,-s, s, s,-s, s, s,s, s, -s,s, s
+  ];
+  var faces = [
+    0,1,2, 0,2,3,  // front
+    4,6,5, 4,7,6,  // back
+    0,3,7, 0,7,4,  // left
+    1,5,6, 1,6,2,  // right
+    3,2,6, 3,6,7,  // top
+    0,4,5, 0,5,1   // bottom
+  ];
+  var norms = [
+    0,0,-1, 0,0,-1, 0,0,-1, 0,0,-1,
+    0,0,1, 0,0,1, 0,0,1, 0,0,1,
+    -1,0,0, -1,0,0, -1,0,0, -1,0,0,
+    1,0,0, 1,0,0, 1,0,0, 1,0,0,
+    0,1,0, 0,1,0, 0,1,0, 0,1,0,
+    0,-1,0, 0,-1,0, 0,-1,0, 0,-1,0
+  ];
+  return { vertices: verts, faces: faces, normals: norms };
+};
+
+// ---- Cylinder ----
+WindTunnelApp.prototype.createCylinder = function () {
+  var r = 0.2, h = 0.5, segs = 24;
+  var verts = [], faces = [], norms = [];
+  // Side
+  for (var i = 0; i <= segs; i++) {
+    var angle = i * 2 * Math.PI / segs;
+    var nx = Math.cos(angle), nz = Math.sin(angle);
+    verts.push(nx*r, -h/2, nz*r); norms.push(nx, 0, nz);
+    verts.push(nx*r,  h/2, nz*r); norms.push(nx, 0, nz);
+  }
+  for (var i = 0; i < segs; i++) {
+    var a = i*2, b = a+1, c = a+2, d = a+3;
+    faces.push(a, c, b, b, c, d);
+  }
+  // Top cap
+  var topCenter = verts.length / 3;
+  verts.push(0, h/2, 0); norms.push(0, 1, 0);
+  for (var i = 0; i <= segs; i++) {
+    var angle = i * 2 * Math.PI / segs;
+    verts.push(Math.cos(angle)*r, h/2, Math.sin(angle)*r);
+    norms.push(0, 1, 0);
+  }
+  for (var i = 0; i < segs; i++) {
+    faces.push(topCenter, topCenter+1+i, topCenter+2+i);
+  }
+  // Bottom cap
+  var botCenter = verts.length / 3;
+  verts.push(0, -h/2, 0); norms.push(0, -1, 0);
+  for (var i = 0; i <= segs; i++) {
+    var angle = i * 2 * Math.PI / segs;
+    verts.push(Math.cos(angle)*r, -h/2, Math.sin(angle)*r);
+    norms.push(0, -1, 0);
+  }
+  for (var i = 0; i < segs; i++) {
+    faces.push(botCenter, botCenter+2+i, botCenter+1+i);
+  }
+  return { vertices: verts, faces: faces, normals: norms };
+};
+
+// ---- F1 Race Car (simplified) ----
+WindTunnelApp.prototype.createF1Car = function () {
+  var verts = [], faces = [], norms = [];
+  function addBox(cx,cy,cz,sx,sy,sz) {
+    var dx=sx/2,dy=sy/2,dz=sz/2, v=verts.length/3;
+    var pts=[[cx-dx,cy-dy,cz-dz],[cx+dx,cy-dy,cz-dz],[cx+dx,cy+dy,cz-dz],[cx-dx,cy+dy,cz-dz],
+             [cx-dx,cy-dy,cz+dz],[cx+dx,cy-dy,cz+dz],[cx+dx,cy+dy,cz+dz],[cx-dx,cy+dy,cz+dz]];
+    for (var p=0;p<8;p++) verts.push(pts[p][0],pts[p][1],pts[p][2]);
+    var bf=[[v,v+1,v+2,v,v+2,v+3],[v+4,v+6,v+5,v+4,v+7,v+6],
+            [v,v+3,v+7,v,v+7,v+4],[v+1,v+5,v+6,v+1,v+6,v+2],
+            [v+3,v+2,v+6,v+3,v+6,v+7],[v,v+4,v+5,v,v+5,v+1]];
+    var bn=[[0,0,-1],[0,0,1],[-1,0,0],[1,0,0],[0,1,0],[0,-1,0]];
+    for (var fi=0;fi<6;fi++) {
+      faces.push(bf[fi][0],bf[fi][1],bf[fi][2],bf[fi][3],bf[fi][4],bf[fi][5]);
+      for (var ni=0;ni<6;ni++) norms.push(bn[fi][0],bn[fi][1],bn[fi][2]);
+    }
+  }
+  function addWing(cx,cy,cz,sx,sy,sz) { addBox(cx,cy,cz,sx,sy,sz); }
+  // Monocoque (narrow body)
+  addBox(0, 0, 0, 0.6, 0.08, 0.12);
+  // Nose cone (tapered)
+  addBox(-0.38, -0.01, 0, 0.18, 0.06, 0.10);
+  // Cockpit area
+  addBox(0.05, 0.06, 0, 0.15, 0.06, 0.11);
+  // Engine cover (rear hump)
+  addBox(0.22, 0.05, 0, 0.2, 0.07, 0.10);
+  // Rear crash structure
+  addBox(0.35, 0.0, 0, 0.06, 0.06, 0.08);
+  // Front wing (wide)
+  addWing(-0.38, -0.03, 0, 0.04, 0.015, 0.42);
+  // Front wing endplates
+  addWing(-0.38, -0.02, 0.22, 0.05, 0.04, 0.01);
+  addWing(-0.38, -0.02, -0.22, 0.05, 0.04, 0.01);
+  // Rear wing
+  addWing(0.35, 0.08, 0, 0.03, 0.06, 0.32);
+  // Rear wing endplates
+  addWing(0.35, 0.06, 0.17, 0.04, 0.10, 0.01);
+  addWing(0.35, 0.06, -0.17, 0.04, 0.10, 0.01);
+  // Rear wing support
+  addWing(0.35, 0.03, 0, 0.015, 0.05, 0.015);
+  // Front wheels (simplified as boxes)
+  addBox(-0.25, -0.05, 0.13, 0.08, 0.10, 0.06);
+  addBox(-0.25, -0.05, -0.13, 0.08, 0.10, 0.06);
+  // Rear wheels
+  addBox(0.28, -0.05, 0.14, 0.10, 0.10, 0.07);
+  addBox(0.28, -0.05, -0.14, 0.10, 0.10, 0.07);
+  // Side pods
+  addBox(0.08, -0.01, 0.10, 0.22, 0.06, 0.06);
+  addBox(0.08, -0.01, -0.10, 0.22, 0.06, 0.06);
+  // Barge boards
+  addWing(-0.12, 0.01, 0.09, 0.10, 0.03, 0.01);
+  addWing(-0.12, 0.01, -0.09, 0.10, 0.03, 0.01);
+  return { vertices: verts, faces: faces, normals: norms };
+};
+
+// ---- Bridge ----
+WindTunnelApp.prototype.createBridge = function () {
+  var verts = [], faces = [], norms = [];
+  function addBox(cx,cy,cz,sx,sy,sz) {
+    var dx=sx/2,dy=sy/2,dz=sz/2, v=verts.length/3;
+    var pts=[[cx-dx,cy-dy,cz-dz],[cx+dx,cy-dy,cz-dz],[cx+dx,cy+dy,cz-dz],[cx-dx,cy+dy,cz-dz],
+             [cx-dx,cy-dy,cz+dz],[cx+dx,cy-dy,cz+dz],[cx+dx,cy+dy,cz+dz],[cx-dx,cy+dy,cz+dz]];
+    for (var p=0;p<8;p++) verts.push(pts[p][0],pts[p][1],pts[p][2]);
+    var bf=[[v,v+1,v+2,v,v+2,v+3],[v+4,v+6,v+5,v+4,v+7,v+6],
+            [v,v+3,v+7,v,v+7,v+4],[v+1,v+5,v+6,v+1,v+6,v+2],
+            [v+3,v+2,v+6,v+3,v+6,v+7],[v,v+4,v+5,v,v+5,v+1]];
+    var bn=[[0,0,-1],[0,0,1],[-1,0,0],[1,0,0],[0,1,0],[0,-1,0]];
+    for (var fi=0;fi<6;fi++) {
+      faces.push(bf[fi][0],bf[fi][1],bf[fi][2],bf[fi][3],bf[fi][4],bf[fi][5]);
+      for (var ni=0;ni<6;ni++) norms.push(bn[fi][0],bn[fi][1],bn[fi][2]);
+    }
+  }
+  // Deck (road surface)
+  addBox(0, 0, 0, 0.7, 0.03, 0.22);
+  // Side rails
+  addBox(0, 0.04, 0.11, 0.7, 0.05, 0.015);
+  addBox(0, 0.04, -0.11, 0.7, 0.05, 0.015);
+  // Pillars (3 supports)
+  addBox(-0.22, -0.10, 0, 0.03, 0.18, 0.04);
+  addBox(0, -0.10, 0, 0.03, 0.18, 0.04);
+  addBox(0.22, -0.10, 0, 0.03, 0.18, 0.04);
+  // Arch (simplified as angled boxes)
+  addBox(-0.11, 0.10, 0, 0.24, 0.025, 0.03);
+  addBox(0.11, 0.10, 0, 0.24, 0.025, 0.03);
+  // Cross bracing
+  addBox(-0.11, 0.06, 0.08, 0.015, 0.06, 0.015);
+  addBox(-0.11, 0.06, -0.08, 0.015, 0.06, 0.015);
+  addBox(0.11, 0.06, 0.08, 0.015, 0.06, 0.015);
+  addBox(0.11, 0.06, -0.08, 0.015, 0.06, 0.015);
+  return { vertices: verts, faces: faces, normals: norms };
+};
+
+// ---- Airplane (simplified) ----
+WindTunnelApp.prototype.createAirplane = function () {
+  var verts = [], faces = [], norms = [];
+  function addBox(cx,cy,cz,sx,sy,sz) {
+    var dx=sx/2,dy=sy/2,dz=sz/2, v=verts.length/3;
+    var pts=[[cx-dx,cy-dy,cz-dz],[cx+dx,cy-dy,cz-dz],[cx+dx,cy+dy,cz-dz],[cx-dx,cy+dy,cz-dz],
+             [cx-dx,cy-dy,cz+dz],[cx+dx,cy-dy,cz+dz],[cx+dx,cy+dy,cz+dz],[cx-dx,cy+dy,cz+dz]];
+    for (var p=0;p<8;p++) verts.push(pts[p][0],pts[p][1],pts[p][2]);
+    var bf=[[v,v+1,v+2,v,v+2,v+3],[v+4,v+6,v+5,v+4,v+7,v+6],
+            [v,v+3,v+7,v,v+7,v+4],[v+1,v+5,v+6,v+1,v+6,v+2],
+            [v+3,v+2,v+6,v+3,v+6,v+7],[v,v+4,v+5,v,v+5,v+1]];
+    var bn=[[0,0,-1],[0,0,1],[-1,0,0],[1,0,0],[0,1,0],[0,-1,0]];
+    for (var fi=0;fi<6;fi++) {
+      faces.push(bf[fi][0],bf[fi][1],bf[fi][2],bf[fi][3],bf[fi][4],bf[fi][5]);
+      for (var ni=0;ni<6;ni++) norms.push(bn[fi][0],bn[fi][1],bn[fi][2]);
+    }
+  }
+  // Fuselage
+  addBox(0, 0, 0, 0.65, 0.08, 0.08);
+  // Nose
+  addBox(-0.38, 0, 0, 0.12, 0.06, 0.06);
+  // Cockpit canopy
+  addBox(-0.15, 0.055, 0, 0.12, 0.04, 0.06);
+  // Main wings
+  addBox(0.02, 0, 0.26, 0.18, 0.015, 0.32);
+  addBox(0.02, 0, -0.26, 0.18, 0.015, 0.32);
+  // Wing tips
+  addBox(0.02, 0.02, 0.42, 0.06, 0.03, 0.02);
+  addBox(0.02, 0.02, -0.42, 0.06, 0.03, 0.02);
+  // Tail vertical stabilizer
+  addBox(0.30, 0.08, 0, 0.08, 0.12, 0.015);
+  // Tail horizontal stabilizer
+  addBox(0.30, 0.02, 0.12, 0.08, 0.012, 0.10);
+  addBox(0.30, 0.02, -0.12, 0.08, 0.012, 0.10);
+  // Engine nacelles (under wings)
+  addBox(0.0, -0.04, 0.16, 0.10, 0.05, 0.05);
+  addBox(0.0, -0.04, -0.16, 0.10, 0.05, 0.05);
   return { vertices: verts, faces: faces, normals: norms };
 };
 
