@@ -5,9 +5,28 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>风洞模拟 | Wind Tunnel CFD Simulator</title>
 <link rel="stylesheet" href="style.css">
-<!-- Three.js r163 UMD builds — no Import Maps needed -->
+<!-- Three.js r163 UMD builds -->
 <script src="https://cdn.jsdelivr.net/npm/three@0.163.0/build/three.min.js"></script>
+<script>
+if (typeof THREE === 'undefined') {
+  var s = document.createElement('script');
+  s.src = 'https://unpkg.com/three@0.163.0/build/three.min.js';
+  s.onerror = function() {
+    var s2 = document.createElement('script');
+    s2.src = 'https://cdnjs.cloudflare.com/ajax/libs/three.js/0.163.0/three.min.js';
+    document.head.appendChild(s2);
+  };
+  document.head.appendChild(s);
+}
+</script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.163.0/examples/js/controls/OrbitControls.js"></script>
+<script>
+if (typeof THREE !== 'undefined' && !THREE.OrbitControls) {
+  var s = document.createElement('script');
+  s.src = 'https://unpkg.com/three@0.163.0/examples/js/controls/OrbitControls.js';
+  document.head.appendChild(s);
+}
+</script>
 </head>
 <body>
 <div id="app">
@@ -155,5 +174,20 @@
 </div>
 
 <script src="app.js"></script>
+<script>
+// Final check: show error if critical dependencies missing
+setTimeout(function() {
+  if (typeof THREE === 'undefined') {
+    document.getElementById('compat-warn').style.display = 'flex';
+    document.getElementById('compat-warn').querySelector('h2').textContent = '⚠️ 资源加载失败';
+    document.getElementById('compat-warn').querySelector('p').innerHTML =
+      'Three.js 3D引擎加载失败，请检查网络连接后刷新页面。<br>建议使用 Chrome / Edge / Firefox 浏览器。';
+    document.getElementById('viewport').style.display = 'none';
+    document.getElementById('toolbar').style.display = 'none';
+  } else if (!window.app) {
+    document.getElementById('status-text').textContent = '应用初始化失败，请打开浏览器控制台(F12)查看错误';
+  }
+}, 3000);
+</script>
 </body>
 </html>

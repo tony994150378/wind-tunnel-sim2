@@ -1455,6 +1455,22 @@ WindTunnelApp.prototype.animate = function () {
 };
 
 // ---- Boot ----
-window.app = new WindTunnelApp();
+try {
+  if (typeof THREE === 'undefined') {
+    console.error('Three.js not loaded');
+    var el = document.getElementById('status-text');
+    if (el) el.textContent = '错误: Three.js 未加载，请检查网络';
+  } else if (!THREE.OrbitControls) {
+    console.error('OrbitControls not loaded');
+    var el = document.getElementById('status-text');
+    if (el) el.textContent = '错误: OrbitControls 未加载，请刷新重试';
+  } else {
+    window.app = new WindTunnelApp();
+  }
+} catch (e) {
+  console.error('App init error:', e);
+  var el = document.getElementById('status-text');
+  if (el) el.textContent = '初始化错误: ' + e.message;
+}
 
 })();
