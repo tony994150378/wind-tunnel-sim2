@@ -390,47 +390,33 @@ WindTunnelApp.prototype.initParticles = function (count) {
     'uniform float uSize;',
     'uniform float uSimSize;',
     'uniform float uSpeed;',
-    'uniform int uColormap;',
     'varying float vSpeed;',
     'varying float vAge;',
-    'vec3 getColor(float t, int cmap) {',
-    '  if (cmap == 1) {',
-    '    if (t<0.25) return mix(vec3(0,.2,1),vec3(.5,.8,1),t*4.0);',
-    '    if (t<0.5)  return mix(vec3(.5,.8,1),vec3(.95),(t-0.25)*4.0);',
-    '    if (t<0.75) return mix(vec3(.95),vec3(1,.5,.3),(t-0.5)*4.0);',
-    '    return mix(vec3(1,.5,.3),vec3(.8,0,0),(t-0.75)*4.0);',
-    '  } else if (cmap == 2) {',
-    '    float s = sin(t*18.0)*0.5+0.5;',
-    '    return mix(vec3(0,.3,.8),vec3(.8,.1,0),s);',
-    '  } else {',
-    '    if (t<0.25) return mix(vec3(0,0,1),vec3(0,1,1),t*4.0);',
-    '    if (t<0.5)  return mix(vec3(0,1,1),vec3(0,1,0),(t-0.25)*4.0);',
-    '    if (t<0.75) return mix(vec3(0,1,0),vec3(1,1,0),(t-0.5)*4.0);',
-    '    return mix(vec3(1,1,0),vec3(1,0,0),(t-0.75)*4.0);',
-    '  }',
-    '}',
     'void main() {',
     '  vec3 pos = position;',
     '  float age = aAge;',
-    '  for (int step = 0; step < 2; step++) {',
+    '  // Advect particle through velocity field',
+    '  for (int step = 0; step < 3; step++) {',
     '    vec3 tc = (pos + uSimSize * 0.5) / uSimSize;',
-    '    tc = clamp(tc, 0.005, 0.995);',
+    '    tc = clamp(tc, 0.01, 0.99);',
     '    vec3 vel = texture(uVelocityField, tc).rgb;',
-    '    pos += vel * uSpeed * 15.0;',
-    '    age += 0.016;',
-    '    if (age > 3.0 || pos.x > uSimSize*0.55 || pos.x < -uSimSize*0.55 ||',
-    '        abs(pos.y) > uSimSize*0.5 || abs(pos.z) > uSimSize*0.5) {',
-    '      pos.x = -uSimSize*0.55 - aRandom*uSimSize*0.1;',
-    '      pos.y = (aRandom*2.0-1.0)*uSimSize*0.45;',
-    '      pos.z = (fract(aRandom*7.0)*2.0-1.0)*uSimSize*0.45;',
-    '      age = 0.0;',
-    '    }',
+    '    pos += vel * uSpeed * 20.0;',
+    '    age += 0.02;',
     '  }',
-    '  vec3 tc2 = clamp((pos + uSimSize*0.5) / uSimSize, 0.005, 0.995);',
-    '  float spd = length(texture(uVelocityField, tc2).rgb);',
-    '  vSpeed = spd; vAge = age;',
+    '  // Respawn if out of bounds or too old',
+    '  if (age > 3.0 || pos.x > uSimSize*0.55 || pos.x < -uSimSize*0.55 ||',
+    '      abs(pos.y) > uSimSize*0.5 || abs(pos.z) > uSimSize*0.5) {',
+    '    pos.x = -uSimSize*0.55 - aRandom*uSimSize*0.1;',
+    '    pos.y = (aRandom*2.0-1.0)*uSimSize*0.45;',
+    '    pos.z = (fract(aRandom*7.0)*2.0-1.0)*uSimSize*0.45;',
+    '    age = 0.0;',
+    '  }',
+    '  // Compute speed for coloring',
+    '  vec3 tc2 = clamp((pos + uSimSize*0.5) / uSimSize, 0.01, 0.99);',
+    '  vSpeed = length(texture(uVelocityField, tc2).rgb);',
+    '  vAge = age;',
     '  vec4 mvPos = modelViewMatrix * vec4(pos, 1.0);',
-    '  gl_PointSize = uSize * (220.0 / -mvPos.z);',
+    '  gl_PointSize = max(uSize * (220.0 / -mvPos.z), 1.5);',
     '  gl_Position = projectionMatrix * mvPos;',
     '}'
   ].join('\n');
@@ -438,37 +424,19 @@ WindTunnelApp.prototype.initParticles = function (count) {
   var fragShader = [
     'varying float vSpeed;',
     'varying float vAge;',
-    'uniform int uColormap;',
-    'uniform sampler2D uSprite;',
-    'vec3 getColor(float t, int cmap) {',
-    '  // Smooth step interpolation for each palette',
-    '  if (cmap == 1) {',
-    '    t = clamp(t, 0.0, 1.0);',
-    '    if (t<0.25) return mix(vec3(0,.2,1),vec3(.3,.65,1),smoothstep(0.0,0.25,t));',
-    '    if (t<0.5)  return mix(vec3(.3,.65,1),vec3(.9,.9,.9),smoothstep(0.25,0.5,t));',
-    '    if (t<0.75) return mix(vec3(.9,.9,.9),vec3(1,.4,.2),smoothstep(0.5,0.75,t));',
-    '    return mix(vec3(1,.4,.2),vec3(.7,0,0),smoothstep(0.75,1.0,t));',
-    '  } else if (cmap == 2) {',
-    '    float s = sin(t*18.0)*0.5+0.5;',
-    '    return mix(vec3(0,.3,.8),vec3(.8,.1,0),s);',
-    '  } else {',
-    '    t = clamp(t, 0.0, 1.0);',
-    '    if (t<0.2) return mix(vec3(.1,.1,.9),vec3(0,.6,1),smoothstep(0.0,0.2,t));',
-    '    if (t<0.4) return mix(vec3(0,.6,1),vec3(0,1,.5),smoothstep(0.2,0.4,t));',
-    '    if (t<0.6) return mix(vec3(0,1,.5),vec3(.8,1,0),smoothstep(0.4,0.6,t));',
-    '    if (t<0.8) return mix(vec3(.8,1,0),vec3(1,.5,0),smoothstep(0.6,0.8,t));',
-    '    return mix(vec3(1,.5,0),vec3(1,.05,0),smoothstep(0.8,1.0,t));',
-    '  }',
-    '}',
     'void main() {',
-    '  vec4 sprite = texture2D(uSprite, gl_PointCoord);',
-    '  if (sprite.a < 0.01) discard;',
+    '  float dist = length(gl_PointCoord - 0.5);',
+    '  if (dist > 0.5) discard;',
     '  float fadeAge = vAge > 2.5 ? (3.0 - vAge) * 2.0 : 1.0;',
     '  float t = clamp(vSpeed * 5.0, 0.0, 1.0);',
-    '  vec3 color = getColor(t, uColormap);',
-    '  float glow = 0.7 + 0.3 * sprite.a;',
-    '  float alpha = sprite.a * fadeAge * 0.9 * glow;',
-    '  gl_FragColor = vec4(color * glow, alpha);',
+    '  // Rainbow color map',
+    '  vec3 color;',
+    '  if (t<0.25) color = mix(vec3(0,0,1),vec3(0,1,1),t*4.0);',
+    '  else if (t<0.5) color = mix(vec3(0,1,1),vec3(0,1,0),(t-0.25)*4.0);',
+    '  else if (t<0.75) color = mix(vec3(0,1,0),vec3(1,1,0),(t-0.5)*4.0);',
+    '  else color = mix(vec3(1,1,0),vec3(1,0,0),(t-0.75)*4.0);',
+    '  float alpha = (1.0 - dist*1.8) * fadeAge * 0.9;',
+    '  gl_FragColor = vec4(color, alpha);',
     '}'
   ].join('\n');
 
@@ -479,11 +447,9 @@ WindTunnelApp.prototype.initParticles = function (count) {
     fragmentShader: fragShader,
     uniforms: {
       uVelocityField: { value: this.velTexture },
-      uSprite: { value: spriteTex },
       uSize: { value: 3.0 },
       uSimSize: { value: S },
-      uSpeed: { value: 1.0 },
-      uColormap: { value: 0 }
+      uSpeed: { value: 1.0 }
     },
     transparent: true,
     depthWrite: false,
@@ -492,6 +458,7 @@ WindTunnelApp.prototype.initParticles = function (count) {
 
   this.particleSystem = new THREE.Points(geo, mat);
   this.scene.add(this.particleSystem);
+  console.log('[App] Particles created:', count, 'size:', S);
 };
 
 // ---- Slice visualization ----
@@ -717,6 +684,7 @@ WindTunnelApp.prototype.onVelocityData = function (buffer) {
     texData[i*4+3] = 0;
   }
   this.velTexture.needsUpdate = true;
+  if (this.stepCount % 30 === 0) console.log('[App] Velocity texture updated, step:', this.stepCount);
 };
 
 // ---- Model loading ----
@@ -1448,7 +1416,6 @@ WindTunnelApp.prototype.initUI = function () {
   });
   $('ctrl-colormap').addEventListener('change', function (e) {
     var cmap = parseInt(e.target.value);
-    if (self.particleSystem) self.particleSystem.material.uniforms.uColormap.value = cmap;
     if (self.sliceMesh) self.sliceMesh.material.uniforms.uColormap.value = cmap;
     self.updateColorBar();
   });
