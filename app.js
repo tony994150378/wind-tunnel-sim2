@@ -633,9 +633,18 @@ WindTunnelApp.prototype.initWorker = function () {
     '    omega=1/(3*(d.viscosity||0.02)+0.5);',
     '    stepsPerFrame=d.stepsPerFrame||3;',
     '    rho=new Float32Array(N);ux=new Float32Array(N);uy=new Float32Array(N);uz=new Float32Array(N);',
-    '    obstacle=new Uint8Array(N);',
+    '    if(!obstacle) obstacle=new Uint8Array(N);',
     '    fIn=new Float32Array(N*Q);fOut=new Float32Array(N*Q);',
-    '    for (var i=0;i<N;i++) { rho[i]=1; for (var q=0;q<Q;q++) fIn[q*N+i]=w[q]; }',
+    '    for (var i=0;i<N;i++) {',
+    '      rho[i]=1;ux[i]=0;uy[i]=0;uz[i]=0;',
+    '      for (var q=0;q<Q;q++) fIn[q*N+i]=w[q];',
+    '      if (!obstacle[i]) {',
+    '        for (var q=0;q<Q;q++) {',
+    '          var eu=cx[q]*uMax;',
+    '          fIn[q*N+i]=w[q]*(1+3*eu+4.5*eu*eu-1.5*uMax*uMax);',
+    '        }',
+    '      }',
+    '    }',
     '    if (stepTimer) clearInterval(stepTimer);',
     '    stepTimer=setInterval(function(){',
     '      for (var s=0;s<stepsPerFrame;s++) doStep();',
@@ -650,16 +659,6 @@ WindTunnelApp.prototype.initWorker = function () {
     '  }',
     '  else if (d.type==="loadObstacle") {',
     '    obstacle=new Uint8Array(d.data);',
-    '    for (var i=0;i<N;i++) {',
-    '      rho[i]=1;ux[i]=0;uy[i]=0;uz[i]=0;',
-    '      for (var q=0;q<Q;q++) fIn[q*N+i]=w[q];',
-    '      if (!obstacle[i]) {',
-    '        for (var q=0;q<Q;q++) {',
-    '          var eu=cx[q]*uMax;',
-    '          fIn[q*N+i]=w[q]*(1+3*eu+4.5*eu*eu-1.5*uMax*uMax);',
-    '        }',
-    '      }',
-    '    }',
     '    self.postMessage({type:"obstacleLoaded"});',
     '  }',
     '  else if (d.type==="setVelocity") {',
@@ -690,7 +689,8 @@ WindTunnelApp.prototype.onWorkerReady = function () {
 };
 
 WindTunnelApp.prototype.onObstacleLoaded = function () {
-  document.getElementById('status-text').textContent = '模型已加载 - 点击开始模拟';
+  document.getElementById('status-text').textContent = '模型已加载 - 正在初始化模拟引擎...';
+  this.startWorker();
 };
 
 WindTunnelApp.prototype.onStepDone = function () {
