@@ -1,10 +1,9 @@
 // ============================================================
 //  Wind Tunnel CFD Simulator — Lattice Boltzmann Method (D3Q19)
-//  Compatible with Chrome 56+, Firefox 51+, Safari 15+, Edge 79+
 // ============================================================
 
-(function () {
-'use strict';
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
 // ---- Compatibility check ----
 (function checkCompat() {
@@ -209,7 +208,7 @@ WindTunnelApp.prototype.initThree = function () {
   this.camera.position.set(70, 45, 70);
   this.camera.lookAt(0, 0, 0);
 
-  this.controls = new THREE.OrbitControls(this.camera, this.renderer.domElement);
+  this.controls = new OrbitControls(this.camera, this.renderer.domElement);
   this.controls.enableDamping = true;
   this.controls.dampingFactor = 0.08;
   this.controls.maxDistance = 250;
@@ -1461,7 +1460,7 @@ try {
     console.error('Three.js not loaded');
     var el = document.getElementById('status-text');
     if (el) el.textContent = '错误: Three.js 未加载，请检查网络';
-  } else if (!THREE.OrbitControls) {
+  } else if (typeof OrbitControls === 'undefined') {
     console.error('OrbitControls not loaded');
     var el = document.getElementById('status-text');
     if (el) el.textContent = '错误: OrbitControls 未加载，请刷新重试';
@@ -1473,5 +1472,3 @@ try {
   var el = document.getElementById('status-text');
   if (el) el.textContent = '初始化错误: ' + e.message;
 }
-
-})();

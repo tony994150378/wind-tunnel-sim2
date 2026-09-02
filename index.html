@@ -5,38 +5,39 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>风洞模拟 | Wind Tunnel CFD Simulator</title>
 <link rel="stylesheet" href="style.css">
-<!-- Three.js r163 -->
-<script src="https://cdn.jsdelivr.net/npm/three@0.163.0/build/three.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/three@0.163.0/examples/js/controls/OrbitControls.js"></script>
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.163.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.163.0/examples/jsm/"
+  }
+}
+</script>
 </head>
 <body>
 <div id="app">
-  <!-- Compatibility warning -->
   <div id="compat-warn" style="display:none">
     <div class="compat-box">
       <h2>⚠️ 浏览器不兼容</h2>
       <p>您的浏览器不支持 <strong>WebGL2</strong>，无法运行风洞模拟器。</p>
       <p>请升级到以下浏览器的最新版本：</p>
       <ul>
-        <li>Chrome 56+ / Edge 79+</li>
-        <li>Firefox 51+</li>
-        <li>Safari 15+</li>
+        <li>Chrome 89+ / Edge 89+</li>
+        <li>Firefox 108+</li>
+        <li>Safari 16.4+</li>
         <li>搜狗浏览器 13+（极速模式）</li>
-        <li>360 极速浏览器 / QQ 浏览器 / UC 浏览器 等双核浏览器（极速模式）</li>
+        <li>360 极速浏览器 / QQ 浏览器 等（极速模式）</li>
       </ul>
     </div>
   </div>
 
-  <!-- Main viewport -->
   <div id="viewport"></div>
 
-  <!-- Header -->
   <div id="header">
     <h1>🌊 风洞模拟器</h1>
     <span class="subtitle">Lattice Boltzmann CFD · 流体动力学模拟</span>
   </div>
 
-  <!-- Left panel: simulation controls -->
   <div id="panel-left" class="panel">
     <div class="panel-title">📐 模拟参数</div>
     <div class="control-group">
@@ -61,7 +62,6 @@
       <label>粘度 <span id="val-viscosity" class="val">0.02</span></label>
       <input type="range" id="ctrl-viscosity" min="0.005" max="0.1" step="0.001" value="0.02">
     </div>
-
     <div class="panel-title" style="margin-top:16px">🎯 模型</div>
     <div class="control-group">
       <label>内置模型</label>
@@ -88,7 +88,6 @@
     </div>
   </div>
 
-  <!-- Right panel: visualization controls -->
   <div id="panel-right" class="panel">
     <div class="panel-title">🎨 可视化</div>
     <div class="control-group">
@@ -119,7 +118,6 @@
       <label>粒子速度 <span id="val-pspeed" class="val">1.0</span>x</label>
       <input type="range" id="ctrl-pspeed" min="0.2" max="3.0" step="0.1" value="1.0">
     </div>
-
     <div class="panel-title" style="margin-top:16px">📷 视角</div>
     <div class="btn-group">
       <button class="btn btn-sm" onclick="app.setCameraView('side')">侧视</button>
@@ -129,14 +127,12 @@
     </div>
   </div>
 
-  <!-- Toolbar -->
   <div id="toolbar">
     <button class="btn btn-lg btn-success" id="btn-start">▶ 开始模拟</button>
     <button class="btn btn-lg btn-warning" id="btn-pause" style="display:none">⏸ 暂停</button>
     <button class="btn btn-lg btn-danger" id="btn-reset">⟲ 重置</button>
   </div>
 
-  <!-- Color bar legend -->
   <div id="colorbar">
     <canvas id="colorbar-canvas" width="200" height="16"></canvas>
     <div class="colorbar-labels">
@@ -145,7 +141,6 @@
     <div class="colorbar-title">速度 (Ma)</div>
   </div>
 
-  <!-- Status bar -->
   <div id="status-bar">
     <span id="status-text">就绪 - 选择模型后点击开始</span>
     <span id="step-count">步数: 0</span>
@@ -154,6 +149,6 @@
   </div>
 </div>
 
-<script src="app.js"></script>
+<script type="module" src="app.js"></script>
 </body>
 </html>
