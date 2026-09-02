@@ -554,6 +554,7 @@ WindTunnelApp.prototype.initSlice = function () {
   this.sliceMesh = new THREE.Mesh(geo, mat);
   this.sliceMesh.rotation.y = Math.PI / 2;
   this.sliceMesh.position.x = 0;
+  this.sliceMesh.visible = false;
   this.scene.add(this.sliceMesh);
 };
 
@@ -677,18 +678,25 @@ WindTunnelApp.prototype.initWorker = function () {
   var self = this;
   this.worker.onmessage = function (e) {
     var d = e.data;
+    console.log('[Worker→App]', d.type);
     if (d.type === 'ready') self.onWorkerReady();
     else if (d.type === 'obstacleLoaded') self.onObstacleLoaded();
     else if (d.type === 'stepDone') self.onStepDone();
     else if (d.type === 'data') self.onVelocityData(d.buffer);
   };
+  this.worker.onerror = function (e) {
+    console.error('[Worker error]', e.message);
+    document.getElementById('status-text').textContent = 'Worker错误: ' + e.message;
+  };
 };
 
 WindTunnelApp.prototype.onWorkerReady = function () {
+  console.log('[App] Worker ready');
   document.getElementById('status-text').textContent = '模拟引擎就绪';
 };
 
 WindTunnelApp.prototype.onObstacleLoaded = function () {
+  console.log('[App] Obstacle loaded, starting worker...');
   document.getElementById('status-text').textContent = '模型已加载 - 正在初始化模拟引擎...';
   this.startWorker();
 };
@@ -713,6 +721,7 @@ WindTunnelApp.prototype.onVelocityData = function (buffer) {
 
 // ---- Model loading ----
 WindTunnelApp.prototype.loadModel = function (name) {
+  console.log('[App] Loading model:', name);
   var mesh;
   if (name === 'sphere') mesh = this.createSphere();
   else if (name === 'car') mesh = this.createCar();
@@ -725,7 +734,77 @@ WindTunnelApp.prototype.loadModel = function (name) {
   else mesh = this.createSphere();
   this.currentModelMesh = mesh;
   this.currentModel = name;
+  this.showModelMesh(mesh);
   this.voxelizeAndLoad(mesh);
+};
+
+WindTunnelApp.prototype.showModelMesh = function (mesh) {
+  // Remove old model visual
+  if (this.modelVisual) {
+    this.scene.remove(this.modelVisual);
+    this.modelVisual.geometry.dispose();
+    this.modelVisual.material.dispose();
+  }
+
+  var S = this.SIM_SIZE;
+  var v = mesh.vertices, faces = mesh.faces;
+
+  // Compute bounds and scale (same as voxelization)
+  var minX=Infinity,maxX=-Infinity,minY=Infinity,maxY=-Infinity,minZ=Infinity,maxZ=-Infinity;
+  for (var i=0;i<v.length;i+=3) {
+    if(v[i]<minX)minX=v[i]; if(v[i]>maxX)maxX=v[i];
+    if(v[i+1]<minY)minY=v[i+1]; if(v[i+1]>maxY)maxY=v[i+1];
+    if(v[i+2]<minZ)minZ=v[i+2]; if(v[i+2]>maxZ)maxZ=v[i+2];
+  }
+  var sizeX=maxX-minX||1,sizeY=maxY-minY||1,sizeZ=maxZ-minZ||1;
+  var scale = this.modelScale;
+  var cellScale = (S*0.28)/Math.max(sizeX,sizeY,sizeZ)*scale;
+  var cx=(minX+maxX)/2,cy=(minY+maxY)/2,cz=(minZ+maxZ)/2;
+
+  // Create Three.js geometry
+  var geo = new THREE.BufferGeometry();
+  var positions = new Float32Array(faces.length * 3);
+  var normals = new Float32Array(faces.length * 3);
+
+  for (var i = 0; i < faces.length; i += 3) {
+    var i0=faces[i]*3, i1=faces[i+1]*3, i2=faces[i+2]*3;
+
+    // Transform to grid space
+    var ax=(v[i0]-cx)*cellScale+S/2, ay=(v[i0+1]-cy)*cellScale+S/2, az=(v[i0+2]-cz)*cellScale+S/2;
+    var bx=(v[i1]-cx)*cellScale+S/2, by=(v[i1+1]-cy)*cellScale+S/2, bz=(v[i1+2]-cz)*cellScale+S/2;
+    var ccx=(v[i2]-cx)*cellScale+S/2, ccy=(v[i2+1]-cy)*cellScale+S/2, ccz=(v[i2+2]-cz)*cellScale+S/2;
+
+    // Center in scene (grid is centered at 0)
+    positions[i*9+0]=ax-S/2;   positions[i*9+1]=ay-S/2;   positions[i*9+2]=az-S/2;
+    positions[i*9+3]=bx-S/2;   positions[i*9+4]=by-S/2;   positions[i*9+5]=bz-S/2;
+    positions[i*9+6]=ccx-S/2;  positions[i*9+7]=ccy-S/2;  positions[i*9+8]=ccz-S/2;
+
+    // Compute face normal
+    var e1x=bx-ax,e1y=by-ay,e1z=bz-az;
+    var e2x=ccx-ax,e2y=ccy-ay,e2z=ccz-az;
+    var nx=e1y*e2z-e1z*e2y, ny=e1z*e2x-e1x*e2z, nz=e1x*e2y-e1y*e2x;
+    var len=Math.sqrt(nx*nx+ny*ny+nz*nz)||1;
+    nx/=len; ny/=len; nz/=len;
+    normals[i*9+0]=nx; normals[i*9+1]=ny; normals[i*9+2]=nz;
+    normals[i*9+3]=nx; normals[i*9+4]=ny; normals[i*9+5]=nz;
+    normals[i*9+6]=nx; normals[i*9+7]=ny; normals[i*9+8]=nz;
+  }
+
+  geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  geo.setAttribute('normal', new THREE.BufferAttribute(normals, 3));
+
+  var mat = new THREE.MeshStandardMaterial({
+    color: 0x4fc3f7,
+    roughness: 0.5,
+    metalness: 0.2,
+    transparent: true,
+    opacity: 0.7,
+    side: THREE.DoubleSide
+  });
+
+  this.modelVisual = new THREE.Mesh(geo, mat);
+  this.scene.add(this.modelVisual);
+  console.log('[App] Model visual added:', faces.length/3, 'triangles');
 };
 
 WindTunnelApp.prototype.createSphere = function () {
@@ -1134,6 +1213,7 @@ WindTunnelApp.prototype.loadFile = function (file) {
 
 // ---- Voxelization ----
 WindTunnelApp.prototype.voxelizeAndLoad = function (mesh) {
+  var self = this;
   var S = this.SIM_SIZE;
   var obstacle = new Uint8Array(S * S * S);
   var v = mesh.vertices, faces = mesh.faces;
@@ -1153,46 +1233,59 @@ WindTunnelApp.prototype.voxelizeAndLoad = function (mesh) {
   var gMinX=Math.floor(S/2-(maxX-cx)*cellScale-1), gMaxX=Math.ceil(S/2-(minX-cx)*cellScale+1);
   var gMinY=Math.floor(S/2-(maxY-cy)*cellScale-1), gMaxY=Math.ceil(S/2-(minY-cy)*cellScale+1);
   var gMinZ=Math.floor(S/2-(maxZ-cz)*cellScale-1), gMaxZ=Math.ceil(S/2-(minZ-cz)*cellScale+1);
-
   gMinX=Math.max(1,gMinX); gMaxX=Math.min(S-2,gMaxX);
   gMinY=Math.max(1,gMinY); gMaxY=Math.min(S-2,gMaxY);
   gMinZ=Math.max(1,gMinZ); gMaxZ=Math.min(S-2,gMaxZ);
 
-  var eps=1e-9;
-  var solidCount=0;
+  // Build cell list
+  var cells = [];
+  for (var gz=gMinZ;gz<=gMaxZ;gz++)
+    for (var gy=gMinY;gy<=gMaxY;gy++)
+      for (var gx=gMinX;gx<=gMaxX;gx++)
+        cells.push(gx,gy,gz);
 
-  for (var gz=gMinZ;gz<=gMaxZ;gz++) {
-    for (var gy=gMinY;gy<=gMaxY;gy++) {
-      for (var gx=gMinX;gx<=gMaxX;gx++) {
-        var wx=(gx-S/2)/cellScale+cx, wy=(gy-S/2)/cellScale+cy, wz=(gz-S/2)/cellScale+cz;
-        if (wx<minX-eps||wx>maxX+eps||wy<minY-eps||wy>maxY+eps||wz<minZ-eps||wz>maxZ+eps) continue;
+  var eps=1e-9, solidCount=0, idx=0;
+  var CHUNK = 8000; // cells per chunk (3 ints each)
 
-        var hits=0;
-        for (var fi=0;fi<faces.length;fi+=3) {
-          var i0=faces[fi]*3,i1=faces[fi+1]*3,i2=faces[fi+2]*3;
-          var ax=v[i0],ay=v[i0+1],az=v[i0+2];
-          var e1x=v[i1]-ax,e1y=v[i1+1]-ay,e1z=v[i1+2]-az;
-          var e2x=v[i2]-ax,e2y=v[i2+1]-ay,e2z=v[i2+2]-az;
-          var hx=e2z,e2y_=e2x; // reuse vars carefully
-          // Ray-triangle (Möller–Trumbore)
-          var hhy=1*e2z-0*e2y, hhz=0*e2x-1*e2z, hhx=1*e2y-0*e2x; // dir=(1,0,0)
-          var a=e1x*hhx+e1y*hhy+e1z*hhz;
-          if (a>-eps&&a<eps) continue;
-          var f=1/a;
-          var sx2=wx-ax,sy2=wy-ay,sz2=wz-az;
-          var u=f*(sx2*hhx+sy2*hhy+sz2*hhz);
-          if (u<0||u>1) continue;
-          var qx=sy2*e1z-sz2*e1y,qy=sz2*e1x-sx2*e1z,qz=sx2*e1y-sy2*e1x;
-          var vv=f*(1*qx+0*qy+0*qz);
-          if (vv>=0&&u+vv<=1&&f*(e2x*qx+e2y*qy+e2z*qz)>eps) hits++;
-        }
-        if (hits%2===1) { obstacle[gx+gy*S+gz*S*S]=1; solidCount++; }
+  document.getElementById('status-text').textContent = '体素化中...';
+
+  function processChunk() {
+    var end = Math.min(idx + CHUNK * 3, cells.length);
+    for (var ci = idx; ci < end; ci += 3) {
+      var gx=cells[ci], gy=cells[ci+1], gz=cells[ci+2];
+      var wx=(gx-S/2)/cellScale+cx, wy=(gy-S/2)/cellScale+cy, wz=(gz-S/2)/cellScale+cz;
+      var hits=0;
+      for (var fi=0;fi<faces.length;fi+=3) {
+        var i0=faces[fi]*3,i1=faces[fi+1]*3,i2=faces[fi+2]*3;
+        var ax=v[i0],ay=v[i0+1],az=v[i0+2];
+        var e1x=v[i1]-ax,e1y=v[i1+1]-ay,e1z=v[i1+2]-az;
+        var e2x=v[i2]-ax,e2y=v[i2+1]-ay,e2z=v[i2+2]-az;
+        var hhy=1*e2z-0*e2y, hhz=0*e2x-1*e2z, hhx=1*e2y-0*e2x;
+        var a=e1x*hhx+e1y*hhy+e1z*hhz;
+        if (a>-eps&&a<eps) continue;
+        var f=1/a;
+        var sx2=wx-ax,sy2=wy-ay,sz2=wz-az;
+        var u=f*(sx2*hhx+sy2*hhy+sz2*hhz);
+        if (u<0||u>1) continue;
+        var qx=sy2*e1z-sz2*e1y,qy=sz2*e1x-sx2*e1z,qz=sx2*e1y-sy2*e1x;
+        var vv=f*(1*qx+0*qy+0*qz);
+        if (vv>=0&&u+vv<=1&&f*(e2x*qx+e2y*qy+e2z*qz)>eps) hits++;
       }
+      if (hits%2===1) { obstacle[gx+gy*S+gz*S*S]=1; solidCount++; }
+    }
+    idx = end;
+
+    if (idx < cells.length) {
+      document.getElementById('status-text').textContent =
+        '体素化中... ' + Math.round(idx/cells.length*100) + '%';
+      setTimeout(processChunk, 0);
+    } else {
+      document.getElementById('status-text').textContent = '模型已加载 (' + solidCount + ' 个固体网格)';
+      self.worker.postMessage({ type: 'loadObstacle', data: obstacle.buffer }, [obstacle.buffer]);
     }
   }
 
-  document.getElementById('status-text').textContent = '模型已加载 (' + solidCount + ' 个固体网格)';
-  this.worker.postMessage({ type: 'loadObstacle', data: obstacle.buffer }, [obstacle.buffer]);
+  processChunk();
 };
 
 // ---- Worker communication ----
@@ -1217,6 +1310,7 @@ WindTunnelApp.prototype.initUI = function () {
   var $ = function (id) { return document.getElementById(id); };
 
   $('btn-start').addEventListener('click', function () {
+    console.log('[App] Start clicked, running=', self.running);
     self.running = true;
     $('btn-start').style.display = 'none';
     $('btn-pause').style.display = '';
@@ -1285,6 +1379,47 @@ WindTunnelApp.prototype.initUI = function () {
   // Auto-detect button
   $('btn-auto').addEventListener('click', function () {
     self.autoProfile();
+  });
+
+  // Log panel
+  var logEntries = [];
+  var origLog = console.log;
+  var origErr = console.error;
+  var origWarn = console.warn;
+  function captureLog(type, args) {
+    var msg = Array.prototype.slice.call(args).map(function(a) {
+      return typeof a === 'object' ? JSON.stringify(a) : String(a);
+    }).join(' ');
+    var ts = new Date().toLocaleTimeString();
+    logEntries.push('[' + ts + '] [' + type + '] ' + msg);
+    if (logEntries.length > 500) logEntries.shift();
+  }
+  console.log = function() { captureLog('INFO', arguments); origLog.apply(console, arguments); };
+  console.error = function() { captureLog('ERROR', arguments); origErr.apply(console, arguments); };
+  console.warn = function() { captureLog('WARN', arguments); origWarn.apply(console, arguments); };
+
+  $('btn-log').addEventListener('click', function () {
+    var panel = document.getElementById('log-panel');
+    var content = document.getElementById('log-content');
+    content.textContent = logEntries.join('\n');
+    panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+    content.scrollTop = content.scrollHeight;
+  });
+  $('btn-log-copy').addEventListener('click', function () {
+    var text = logEntries.join('\n');
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(text).then(function() { origLog('日志已复制到剪贴板'); });
+    } else {
+      var ta = document.createElement('textarea');
+      ta.value = text;
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+    }
+  });
+  $('btn-log-close').addEventListener('click', function () {
+    document.getElementById('log-panel').style.display = 'none';
   });
 
   // File upload

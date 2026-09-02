@@ -93,9 +93,9 @@
     <div class="control-group">
       <label>显示模式</label>
       <select id="ctrl-visual">
-        <option value="particles">粒子追踪</option>
+        <option value="particles" selected>粒子追踪</option>
         <option value="slice">截面云图</option>
-        <option value="both" selected>同时显示</option>
+        <option value="both">同时显示</option>
       </select>
     </div>
     <div class="control-group">
@@ -146,6 +146,19 @@
     <span id="step-count">步数: 0</span>
     <span id="fps-counter">FPS: --</span>
     <span id="re-counter">Re: 0</span>
+    <button class="btn btn-sm" id="btn-log" style="padding:2px 8px;font-size:11px">📋 日志</button>
+  </div>
+
+  <!-- Log panel -->
+  <div id="log-panel" style="display:none">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+      <strong style="color:var(--accent)">运行日志</strong>
+      <div>
+        <button class="btn btn-sm" id="btn-log-copy">复制</button>
+        <button class="btn btn-sm" id="btn-log-close">关闭</button>
+      </div>
+    </div>
+    <pre id="log-content"></pre>
   </div>
 </div>
 
