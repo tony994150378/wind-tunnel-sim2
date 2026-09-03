@@ -369,96 +369,115 @@ WindTunnelApp.prototype.initParticles = function (count) {
   }
   this.particleCount = count;
   var S = this.SIM_SIZE;
-  var positions = new Float32Array(count * 3);
-  var ages = new Float32Array(count);
-  var randoms = new Float32Array(count);
+  this.particlePos = new Float32Array(count * 3);
+  this.particleColors = new Float32Array(count * 3);
+  this.particleAges = new Float32Array(count);
+  this.particleRandoms = new Float32Array(count);
+
   for (var i = 0; i < count; i++) {
-    positions[i*3]   = (Math.random() - 0.5) * S * 1.1;
-    positions[i*3+1] = (Math.random() - 0.5) * S * 0.95;
-    positions[i*3+2] = (Math.random() - 0.5) * S * 0.95;
-    ages[i] = Math.random() * 3.0;
-    randoms[i] = Math.random();
+    this.particlePos[i*3]   = (Math.random() - 0.5) * S;
+    this.particlePos[i*3+1] = (Math.random() - 0.5) * S * 0.9;
+    this.particlePos[i*3+2] = (Math.random() - 0.5) * S * 0.9;
+    this.particleAges[i] = Math.random() * 3.0;
+    this.particleRandoms[i] = Math.random();
+    this.particleColors[i*3] = 0;
+    this.particleColors[i*3+1] = 0.5;
+    this.particleColors[i*3+2] = 1;
   }
 
   var geo = new THREE.BufferGeometry();
-  geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-  geo.setAttribute('aAge', new THREE.BufferAttribute(ages, 1));
-  geo.setAttribute('aRandom', new THREE.BufferAttribute(randoms, 1));
+  geo.setAttribute('position', new THREE.BufferAttribute(this.particlePos, 3));
+  geo.setAttribute('color', new THREE.BufferAttribute(this.particleColors, 3));
 
-  var vertShader = [
-    'uniform sampler3D uVelocityField;',
-    'uniform float uSize;',
-    'uniform float uSimSize;',
-    'uniform float uSpeed;',
-    'varying float vSpeed;',
-    'varying float vAge;',
-    'void main() {',
-    '  vec3 pos = position;',
-    '  float age = aAge;',
-    '  // Advect particle through velocity field',
-    '  for (int step = 0; step < 3; step++) {',
-    '    vec3 tc = (pos + uSimSize * 0.5) / uSimSize;',
-    '    tc = clamp(tc, 0.01, 0.99);',
-    '    vec3 vel = texture(uVelocityField, tc).rgb;',
-    '    pos += vel * uSpeed * 20.0;',
-    '    age += 0.02;',
-    '  }',
-    '  // Respawn if out of bounds or too old',
-    '  if (age > 3.0 || pos.x > uSimSize*0.55 || pos.x < -uSimSize*0.55 ||',
-    '      abs(pos.y) > uSimSize*0.5 || abs(pos.z) > uSimSize*0.5) {',
-    '    pos.x = -uSimSize*0.55 - aRandom*uSimSize*0.1;',
-    '    pos.y = (aRandom*2.0-1.0)*uSimSize*0.45;',
-    '    pos.z = (fract(aRandom*7.0)*2.0-1.0)*uSimSize*0.45;',
-    '    age = 0.0;',
-    '  }',
-    '  // Compute speed for coloring',
-    '  vec3 tc2 = clamp((pos + uSimSize*0.5) / uSimSize, 0.01, 0.99);',
-    '  vSpeed = length(texture(uVelocityField, tc2).rgb);',
-    '  vAge = age;',
-    '  vec4 mvPos = modelViewMatrix * vec4(pos, 1.0);',
-    '  gl_PointSize = max(uSize * (220.0 / -mvPos.z), 1.5);',
-    '  gl_Position = projectionMatrix * mvPos;',
-    '}'
-  ].join('\n');
-
-  var fragShader = [
-    'varying float vSpeed;',
-    'varying float vAge;',
-    'void main() {',
-    '  float dist = length(gl_PointCoord - 0.5);',
-    '  if (dist > 0.5) discard;',
-    '  float fadeAge = vAge > 2.5 ? (3.0 - vAge) * 2.0 : 1.0;',
-    '  float t = clamp(vSpeed * 5.0, 0.0, 1.0);',
-    '  // Rainbow color map',
-    '  vec3 color;',
-    '  if (t<0.25) color = mix(vec3(0,0,1),vec3(0,1,1),t*4.0);',
-    '  else if (t<0.5) color = mix(vec3(0,1,1),vec3(0,1,0),(t-0.25)*4.0);',
-    '  else if (t<0.75) color = mix(vec3(0,1,0),vec3(1,1,0),(t-0.5)*4.0);',
-    '  else color = mix(vec3(1,1,0),vec3(1,0,0),(t-0.75)*4.0);',
-    '  float alpha = (1.0 - dist*1.8) * fadeAge * 0.9;',
-    '  gl_FragColor = vec4(color, alpha);',
-    '}'
-  ].join('\n');
-
-  var spriteTex = this.makeParticleTexture();
-
-  var mat = new THREE.ShaderMaterial({
-    vertexShader: vertShader,
-    fragmentShader: fragShader,
-    uniforms: {
-      uVelocityField: { value: this.velTexture },
-      uSize: { value: 3.0 },
-      uSimSize: { value: S },
-      uSpeed: { value: 1.0 }
-    },
+  var mat = new THREE.PointsMaterial({
+    size: 1.2,
+    vertexColors: true,
     transparent: true,
+    opacity: 0.8,
     depthWrite: false,
-    blending: THREE.AdditiveBlending
+    blending: THREE.AdditiveBlending,
+    sizeAttenuation: true
   });
 
   this.particleSystem = new THREE.Points(geo, mat);
   this.scene.add(this.particleSystem);
-  console.log('[App] Particles created:', count, 'size:', S);
+  this.velFieldData = null;
+  console.log('[App] Particles created:', count);
+};
+
+WindTunnelApp.prototype.updateParticles = function () {
+  if (!this.velFieldData || !this.particlePos) return;
+  var S = this.SIM_SIZE;
+  var N = S * S * S;
+  var vel = this.velFieldData;
+  var pos = this.particlePos;
+  var col = this.particleColors;
+  var ages = this.particleAge || this.particleAges;
+  var rnds = this.particleRandoms;
+  var halfS = S / 2;
+  var speedMul = 2.0;
+  var count = this.particleCount;
+
+  for (var i = 0; i < count; i++) {
+    var i3 = i * 3;
+    var px = pos[i3], py = pos[i3+1], pz = pos[i3+2];
+    var age = ages[i];
+
+    // Advect through velocity field (3 steps)
+    for (var step = 0; step < 3; step++) {
+      var tx = (px + halfS) / S;
+      var ty = (py + halfS) / S;
+      var tz = (pz + halfS) / S;
+      if (tx < 0 || tx >= 1 || ty < 0 || ty >= 1 || tz < 0 || tz >= 1) break;
+      var ix = Math.floor(tx * (S-1));
+      var iy = Math.floor(ty * (S-1));
+      var iz = Math.floor(tz * (S-1));
+      var idx = (ix + iy * S + iz * S * S) * 3;
+      if (idx >= 0 && idx + 2 < vel.length) {
+        px += vel[idx] * speedMul;
+        py += vel[idx+1] * speedMul;
+        pz += vel[idx+2] * speedMul;
+      }
+      age += 0.02;
+    }
+
+    // Respawn if out of bounds or too old
+    if (age > 3.0 || px > halfS*1.1 || px < -halfS*1.1 ||
+        Math.abs(py) > halfS*0.95 || Math.abs(pz) > halfS*0.95) {
+      px = -halfS * 1.1 - rnds[i] * halfS * 0.2;
+      py = (rnds[i] * 2 - 1) * halfS * 0.85;
+      pz = ((rnds[i] * 7) % 1 * 2 - 1) * halfS * 0.85;
+      age = 0;
+    }
+
+    // Color by velocity
+    var tx2 = (px + halfS) / S;
+    var ty2 = (py + halfS) / S;
+    var tz2 = (pz + halfS) / S;
+    var spd = 0;
+    if (tx2 >= 0 && tx2 < 1 && ty2 >= 0 && ty2 < 1 && tz2 >= 0 && tz2 < 1) {
+      var ix2 = Math.floor(tx2 * (S-1));
+      var iy2 = Math.floor(ty2 * (S-1));
+      var iz2 = Math.floor(tz2 * (S-1));
+      var idx2 = (ix2 + iy2 * S + iz2 * S * S) * 3;
+      if (idx2 >= 0 && idx2 + 2 < vel.length) {
+        spd = Math.sqrt(vel[idx2]*vel[idx2]+vel[idx2+1]*vel[idx2+1]+vel[idx2+2]*vel[idx2+2]);
+      }
+    }
+    var t = Math.min(spd * 5, 1);
+    var r, g, b;
+    if (t < 0.25) { r = 0; g = t*4; b = 1; }
+    else if (t < 0.5) { r = 0; g = 1; b = 1-(t-0.25)*4; }
+    else if (t < 0.75) { r = (t-0.5)*4; g = 1; b = 0; }
+    else { r = 1; g = 1-(t-0.75)*4; b = 0; }
+
+    pos[i3] = px; pos[i3+1] = py; pos[i3+2] = pz;
+    ages[i] = age;
+    col[i3] = r; col[i3+1] = g; col[i3+2] = b;
+  }
+
+  this.particleSystem.geometry.attributes.position.needsUpdate = true;
+  this.particleSystem.geometry.attributes.color.needsUpdate = true;
 };
 
 // ---- Slice visualization ----
@@ -675,6 +694,7 @@ WindTunnelApp.prototype.onStepDone = function () {
 
 WindTunnelApp.prototype.onVelocityData = function (buffer) {
   this.velocityData = new Float32Array(buffer);
+  this.velFieldData = this.velocityData;
   var texData = this.velTexture.image.data;
   var N = this.SIM_SIZE * this.SIM_SIZE * this.SIM_SIZE;
   for (var i = 0; i < N; i++) {
@@ -684,7 +704,11 @@ WindTunnelApp.prototype.onVelocityData = function (buffer) {
     texData[i*4+3] = 0;
   }
   this.velTexture.needsUpdate = true;
-  if (this.stepCount % 30 === 0) console.log('[App] Velocity texture updated, step:', this.stepCount);
+  this.updateParticles();
+  if (this.stepCount % 20 === 0) {
+    this.updateStreamlines();
+    this.updateVelocityCloud();
+  }
 };
 
 // ---- Model loading ----
@@ -704,6 +728,185 @@ WindTunnelApp.prototype.loadModel = function (name) {
   this.currentModel = name;
   this.showModelMesh(mesh);
   this.voxelizeAndLoad(mesh);
+};
+
+// ---- Streamlines ----
+WindTunnelApp.prototype.updateStreamlines = function () {
+  if (!this.velFieldData) return;
+  if (this.streamlinesMesh) {
+    this.scene.remove(this.streamlinesMesh);
+    this.streamlinesMesh.geometry.dispose();
+    this.streamlinesMesh.material.dispose();
+  }
+
+  var S = this.SIM_SIZE;
+  var vel = this.velFieldData;
+  var halfS = S / 2;
+  var nSteps = 100;
+  var stepSize = 0.6;
+
+  // Seed points: grid upstream + around model
+  var seeds = [];
+  var nY = 15, nZ = 15;
+  for (var iy = 0; iy < nY; iy++) {
+    for (var iz = 0; iz < nZ; iz++) {
+      var sy = (iy / (nY-1) - 0.5) * S * 0.85;
+      var sz = (iz / (nZ-1) - 0.5) * S * 0.85;
+      seeds.push(-halfS * 0.95, sy, sz);
+    }
+  }
+
+  var allPositions = [];
+  var allColors = [];
+
+  for (var si = 0; si < seeds.length; si += 3) {
+    var px = seeds[si], py = seeds[si+1], pz = seeds[si+2];
+    var linePositions = [px, py, pz];
+    var lineSpeeds = [0];
+
+    for (var step = 0; step < nSteps; step++) {
+      var tx = (px + halfS) / S;
+      var ty = (py + halfS) / S;
+      var tz = (pz + halfS) / S;
+      if (tx < 0.01 || tx >= 0.99 || ty < 0.01 || ty >= 0.99 || tz < 0.01 || tz >= 0.99) break;
+
+      var fx = tx * (S-1), fy = ty * (S-1), fz = tz * (S-1);
+      var ix = Math.max(0, Math.min(Math.floor(fx), S-2));
+      var iy = Math.max(0, Math.min(Math.floor(fy), S-2));
+      var iz = Math.max(0, Math.min(Math.floor(fz), S-2));
+      var dx = fx - ix, dy = fy - iy, dz = fz - iz;
+
+      function velAt(x,y,z) {
+        var idx = (x + y*S + z*S*S)*3;
+        return [vel[idx], vel[idx+1], vel[idx+2]];
+      }
+      var v000=velAt(ix,iy,iz), v100=velAt(ix+1,iy,iz);
+      var v010=velAt(ix,iy+1,iz), v110=velAt(ix+1,iy+1,iz);
+      var v001=velAt(ix,iy,iz+1), v101=velAt(ix+1,iy,iz+1);
+      var v011=velAt(ix,iy+1,iz+1), v111=velAt(ix+1,iy+1,iz+1);
+
+      var vx=0,vy=0,vz=0;
+      for (var ci=0;ci<3;ci++) {
+        var c00=v000[ci]*(1-dx)+v100[ci]*dx;
+        var c01=v001[ci]*(1-dx)+v101[ci]*dx;
+        var c10=v010[ci]*(1-dx)+v110[ci]*dx;
+        var c11=v011[ci]*(1-dx)+v111[ci]*dx;
+        var c0=c00*(1-dy)+c10*dy;
+        var c1=c01*(1-dy)+c11*dy;
+        var val=c0*(1-dz)+c1*dz;
+        if (ci===0)vx=val; else if (ci===1)vy=val; else vz=val;
+      }
+
+      var spd = Math.sqrt(vx*vx+vy*vy+vz*vz);
+      if (spd < 0.0001) break;
+
+      px += vx / spd * stepSize;
+      py += vy / spd * stepSize;
+      pz += vz / spd * stepSize;
+
+      if (Math.abs(px) > halfS*1.05 || Math.abs(py) > halfS*0.95 || Math.abs(pz) > halfS*0.95) break;
+
+      linePositions.push(px, py, pz);
+      lineSpeeds.push(spd);
+    }
+
+    if (linePositions.length >= 6) {
+      var maxSpd = 0;
+      for (var k=0;k<lineSpeeds.length;k++) if(lineSpeeds[k]>maxSpd) maxSpd=lineSpeeds[k];
+      if (maxSpd < 0.001) maxSpd = 0.001;
+
+      for (var li = 0; li < linePositions.length - 3; li += 3) {
+        allPositions.push(
+          linePositions[li], linePositions[li+1], linePositions[li+2],
+          linePositions[li+3], linePositions[li+4], linePositions[li+5]
+        );
+        var t = lineSpeeds[Math.floor(li/3)+1] / maxSpd;
+        // Rainbow: blue → cyan → green → yellow → red
+        var r,g,b;
+        if (t<0.25){r=0;g=t*4;b=1;}
+        else if (t<0.5){r=0;g=1;b=1-(t-0.25)*4;}
+        else if (t<0.75){r=(t-0.5)*4;g=1;b=0;}
+        else{r=1;g=1-(t-0.75)*4;b=0;}
+        allColors.push(r,g,b, r,g,b);
+      }
+    }
+  }
+
+  if (allPositions.length === 0) return;
+
+  var geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(allPositions, 3));
+  geo.setAttribute('color', new THREE.Float32BufferAttribute(allColors, 3));
+
+  var mat = new THREE.LineBasicMaterial({
+    vertexColors: true,
+    transparent: true,
+    opacity: 0.7,
+    linewidth: 1
+  });
+
+  this.streamlinesMesh = new THREE.LineSegments(geo, mat);
+  this.scene.add(this.streamlinesMesh);
+  console.log('[App] Streamlines:', allPositions.length/6, 'segments');
+};
+
+// ---- 3D Velocity Field Cloud ----
+WindTunnelApp.prototype.updateVelocityCloud = function () {
+  if (!this.velFieldData) return;
+  if (this.velCloudMesh) {
+    this.scene.remove(this.velCloudMesh);
+    this.velCloudMesh.geometry.dispose();
+    this.velCloudMesh.material.dispose();
+  }
+
+  var S = this.SIM_SIZE;
+  var vel = this.velFieldData;
+  var halfS = S / 2;
+  var step = 4; // sample every 4th cell
+  var positions = [];
+  var colors = [];
+
+  for (var z = 1; z < S-1; z += step) {
+    for (var y = 1; y < S-1; y += step) {
+      for (var x = 1; x < S-1; x += step) {
+        var idx = (x + y*S + z*S*S) * 3;
+        var vx = vel[idx], vy = vel[idx+1], vz = vel[idx+2];
+        var spd = Math.sqrt(vx*vx + vy*vy + vz*vz);
+        if (spd < 0.005) continue; // skip slow cells
+
+        var px = x - halfS, py = y - halfS, pz = z - halfS;
+        positions.push(px, py, pz);
+
+        var t = Math.min(spd * 5, 1);
+        var r, g, b;
+        if (t<0.25){r=0;g=t*4;b=1;}
+        else if (t<0.5){r=0;g=1;b=1-(t-0.25)*4;}
+        else if (t<0.75){r=(t-0.5)*4;g=1;b=0;}
+        else{r=1;g=1-(t-0.75)*4;b=0;}
+        colors.push(r, g, b);
+      }
+    }
+  }
+
+  if (positions.length === 0) return;
+
+  var geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+
+  var mat = new THREE.PointsMaterial({
+    size: 0.8,
+    vertexColors: true,
+    transparent: true,
+    opacity: 0.4,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending,
+    sizeAttenuation: true
+  });
+
+  this.velCloudMesh = new THREE.Points(geo, mat);
+  this.scene.add(this.velCloudMesh);
+  console.log('[App] Velocity cloud:', positions.length/3, 'points');
 };
 
 WindTunnelApp.prototype.showModelMesh = function (mesh) {
@@ -1548,9 +1751,8 @@ WindTunnelApp.prototype.animate = function () {
   var re = (this.velocity * (this.SIM_SIZE * 0.28) / this.viscosity).toFixed(0);
   document.getElementById('re-counter').textContent = 'Re: ' + re;
 
-  if (this.particleSystem && this.particleSystem.visible) {
-    this.particleSystem.material.uniforms.uSpeed.value =
-      parseFloat(document.getElementById('ctrl-pspeed').value);
+  if (this.particleSystem && this.particleSystem.visible && this.velFieldData) {
+    this.updateParticles();
   }
 
   this.renderer.render(this.scene, this.camera);
