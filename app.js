@@ -705,10 +705,7 @@ WindTunnelApp.prototype.onVelocityData = function (buffer) {
   }
   this.velTexture.needsUpdate = true;
   this.updateParticles();
-  if (this.stepCount % 20 === 0) {
-    this.updateStreamlines();
-    this.updateVelocityCloud();
-  }
+  if (this.stepCount % 20 === 0) this.updateStreamlines();
 };
 
 // ---- Model loading ----
@@ -745,9 +742,9 @@ WindTunnelApp.prototype.updateStreamlines = function () {
   var nSteps = 100;
   var stepSize = 0.6;
 
-  // Seed points: grid upstream + around model
+  // Seed points: grid upstream
   var seeds = [];
-  var nY = 15, nZ = 15;
+  var nY = 10, nZ = 10;
   for (var iy = 0; iy < nY; iy++) {
     for (var iz = 0; iz < nZ; iz++) {
       var sy = (iy / (nY-1) - 0.5) * S * 0.85;
