@@ -1131,41 +1131,45 @@ WindTunnelApp.prototype.createF1Car = function () {
       for (var ni=0;ni<6;ni++) norms.push(bn[fi][0],bn[fi][1],bn[fi][2]);
     }
   }
-  function addWing(cx,cy,cz,sx,sy,sz) { addBox(cx,cy,cz,sx,sy,sz); }
-  // Monocoque (narrow body)
-  addBox(0, 0, 0, 0.6, 0.08, 0.12);
-  // Nose cone (tapered)
-  addBox(-0.38, -0.01, 0, 0.18, 0.06, 0.10);
-  // Cockpit area
-  addBox(0.05, 0.06, 0, 0.15, 0.06, 0.11);
-  // Engine cover (rear hump)
-  addBox(0.22, 0.05, 0, 0.2, 0.07, 0.10);
+  // Main body (tapered monocoque)
+  addBox(0, 0, 0, 0.55, 0.07, 0.11);
+  // Nose (pointed)
+  addBox(-0.35, -0.01, 0, 0.15, 0.05, 0.09);
+  addBox(-0.42, -0.01, 0, 0.08, 0.04, 0.07);
+  // Cockpit opening
+  addBox(0.0, 0.05, 0, 0.14, 0.05, 0.10);
+  // Engine cover (slim rear)
+  addBox(0.20, 0.03, 0, 0.22, 0.06, 0.09);
   // Rear crash structure
-  addBox(0.35, 0.0, 0, 0.06, 0.06, 0.08);
-  // Front wing (wide)
-  addWing(-0.38, -0.03, 0, 0.04, 0.015, 0.42);
+  addBox(0.34, 0.0, 0, 0.05, 0.05, 0.06);
+  // Front wing (wide, thin, curved)
+  addBox(-0.40, -0.04, 0, 0.04, 0.012, 0.40);
+  addBox(-0.38, -0.05, 0, 0.03, 0.010, 0.35);
   // Front wing endplates
-  addWing(-0.38, -0.02, 0.22, 0.05, 0.04, 0.01);
-  addWing(-0.38, -0.02, -0.22, 0.05, 0.04, 0.01);
-  // Rear wing
-  addWing(0.35, 0.08, 0, 0.03, 0.06, 0.32);
+  addBox(-0.40, -0.03, 0.21, 0.05, 0.04, 0.008);
+  addBox(-0.40, -0.03, -0.21, 0.05, 0.04, 0.008);
+  // Rear wing (tall, narrow)
+  addBox(0.34, 0.08, 0, 0.025, 0.05, 0.28);
+  addBox(0.33, 0.06, 0, 0.020, 0.04, 0.24);
   // Rear wing endplates
-  addWing(0.35, 0.06, 0.17, 0.04, 0.10, 0.01);
-  addWing(0.35, 0.06, -0.17, 0.04, 0.10, 0.01);
-  // Rear wing support
-  addWing(0.35, 0.03, 0, 0.015, 0.05, 0.015);
-  // Front wheels (simplified as boxes)
-  addBox(-0.25, -0.05, 0.13, 0.08, 0.10, 0.06);
-  addBox(-0.25, -0.05, -0.13, 0.08, 0.10, 0.06);
+  addBox(0.34, 0.06, 0.15, 0.035, 0.09, 0.008);
+  addBox(0.34, 0.06, -0.15, 0.035, 0.09, 0.008);
+  // Rear wing support pillar
+  addBox(0.34, 0.02, 0, 0.012, 0.04, 0.012);
+  // Front wheels (cylindrical approximation)
+  addBox(-0.24, -0.06, 0.12, 0.07, 0.08, 0.05);
+  addBox(-0.24, -0.06, -0.12, 0.07, 0.08, 0.05);
   // Rear wheels
-  addBox(0.28, -0.05, 0.14, 0.10, 0.10, 0.07);
-  addBox(0.28, -0.05, -0.14, 0.10, 0.10, 0.07);
-  // Side pods
-  addBox(0.08, -0.01, 0.10, 0.22, 0.06, 0.06);
-  addBox(0.08, -0.01, -0.10, 0.22, 0.06, 0.06);
-  // Barge boards
-  addWing(-0.12, 0.01, 0.09, 0.10, 0.03, 0.01);
-  addWing(-0.12, 0.01, -0.09, 0.10, 0.03, 0.01);
+  addBox(0.26, -0.06, 0.13, 0.09, 0.08, 0.06);
+  addBox(0.26, -0.06, -0.13, 0.09, 0.08, 0.06);
+  // Sidepods (wider, lower)
+  addBox(0.06, -0.02, 0.09, 0.20, 0.05, 0.05);
+  addBox(0.06, -0.02, -0.09, 0.20, 0.05, 0.05);
+  // Sidepod inlets
+  addBox(-0.06, 0.01, 0.10, 0.04, 0.04, 0.02);
+  addBox(-0.06, 0.01, -0.10, 0.04, 0.04, 0.02);
+  // Floor/diffuser
+  addBox(0.05, -0.05, 0, 0.40, 0.008, 0.18);
   return { vertices: verts, faces: faces, normals: norms };
 };
 
@@ -1223,26 +1227,34 @@ WindTunnelApp.prototype.createAirplane = function () {
       for (var ni=0;ni<6;ni++) norms.push(bn[fi][0],bn[fi][1],bn[fi][2]);
     }
   }
-  // Fuselage
-  addBox(0, 0, 0, 0.65, 0.08, 0.08);
-  // Nose
-  addBox(-0.38, 0, 0, 0.12, 0.06, 0.06);
+  // Fuselage (long, slim)
+  addBox(0, 0, 0, 0.70, 0.07, 0.07);
+  // Nose (pointed)
+  addBox(-0.40, 0, 0, 0.10, 0.05, 0.05);
+  addBox(-0.45, 0, 0, 0.06, 0.035, 0.035);
   // Cockpit canopy
-  addBox(-0.15, 0.055, 0, 0.12, 0.04, 0.06);
-  // Main wings
-  addBox(0.02, 0, 0.26, 0.18, 0.015, 0.32);
-  addBox(0.02, 0, -0.26, 0.18, 0.015, 0.32);
+  addBox(-0.18, 0.045, 0, 0.14, 0.035, 0.055);
+  // Main wings (swept back)
+  addBox(0.02, 0, 0.22, 0.20, 0.012, 0.28);
+  addBox(0.02, 0, -0.22, 0.20, 0.012, 0.28);
+  // Wing sweep (angled section)
+  addBox(0.06, 0, 0.36, 0.12, 0.010, 0.08);
+  addBox(0.06, 0, -0.36, 0.12, 0.010, 0.08);
   // Wing tips
-  addBox(0.02, 0.02, 0.42, 0.06, 0.03, 0.02);
-  addBox(0.02, 0.02, -0.42, 0.06, 0.03, 0.02);
-  // Tail vertical stabilizer
-  addBox(0.30, 0.08, 0, 0.08, 0.12, 0.015);
+  addBox(0.04, 0.015, 0.40, 0.05, 0.02, 0.015);
+  addBox(0.04, 0.015, -0.40, 0.05, 0.02, 0.015);
+  // Tail vertical stabilizer (fin)
+  addBox(0.30, 0.07, 0, 0.10, 0.10, 0.012);
+  addBox(0.28, 0.05, 0, 0.06, 0.06, 0.010);
   // Tail horizontal stabilizer
-  addBox(0.30, 0.02, 0.12, 0.08, 0.012, 0.10);
-  addBox(0.30, 0.02, -0.12, 0.08, 0.012, 0.10);
+  addBox(0.30, 0.015, 0.10, 0.10, 0.010, 0.10);
+  addBox(0.30, 0.015, -0.10, 0.10, 0.010, 0.10);
   // Engine nacelles (under wings)
-  addBox(0.0, -0.04, 0.16, 0.10, 0.05, 0.05);
-  addBox(0.0, -0.04, -0.16, 0.10, 0.05, 0.05);
+  addBox(-0.02, -0.04, 0.15, 0.10, 0.04, 0.04);
+  addBox(-0.02, -0.04, -0.15, 0.10, 0.04, 0.04);
+  // Engine pylons
+  addBox(-0.02, -0.02, 0.15, 0.02, 0.02, 0.01);
+  addBox(-0.02, -0.02, -0.15, 0.02, 0.02, 0.01);
   return { vertices: verts, faces: faces, normals: norms };
 };
 
@@ -1622,7 +1634,58 @@ WindTunnelApp.prototype.initUI = function () {
   $('ctrl-slice').addEventListener('input', function (e) {
     var pos = parseFloat(e.target.value);
     $('val-slice').textContent = pos.toFixed(2);
-    if (self.sliceMesh) self.sliceMesh.material.uniforms.uSlicePos.value = pos;
+    if (self.sliceMesh) {
+      self.sliceMesh.position.x = (pos - 0.5) * self.SIM_SIZE;
+      self.sliceMesh.material.uniforms.uSlicePos.value = pos;
+    }
+  });
+
+  // Slice dragging with mouse
+  var sliceDragging = false;
+  var sliceRaycaster = new THREE.Raycaster();
+  var slicePlane = new THREE.Plane(new THREE.Vector3(1, 0, 0), 0);
+
+  self.renderer.domElement.addEventListener('mousedown', function (e) {
+    if (!self.sliceMesh || !self.sliceMesh.visible) return;
+    var rect = self.renderer.domElement.getBoundingClientRect();
+    var mouse = new THREE.Vector2(
+      ((e.clientX - rect.left) / rect.width) * 2 - 1,
+      -((e.clientY - rect.top) / rect.height) * 2 + 1
+    );
+    sliceRaycaster.setFromCamera(mouse, self.camera);
+    var intersects = sliceRaycaster.intersectObject(self.sliceMesh);
+    if (intersects.length > 0) {
+      sliceDragging = true;
+      self.controls.enabled = false;
+    }
+  });
+
+  self.renderer.domElement.addEventListener('mousemove', function (e) {
+    if (!sliceDragging) return;
+    var rect = self.renderer.domElement.getBoundingClientRect();
+    var mouse = new THREE.Vector2(
+      ((e.clientX - rect.left) / rect.width) * 2 - 1,
+      -((e.clientY - rect.top) / rect.height) * 2 + 1
+    );
+    sliceRaycaster.setFromCamera(mouse, self.camera);
+    var intersection = new THREE.Vector3();
+    sliceRaycaster.ray.intersectPlane(slicePlane, intersection);
+    if (intersection) {
+      var S = self.SIM_SIZE;
+      var pos = Math.max(0.1, Math.min(0.9, intersection.x / S + 0.5));
+      self.sliceMesh.position.x = (pos - 0.5) * S;
+      self.sliceMesh.material.uniforms.uSlicePos.value = pos;
+      var slider = document.getElementById('ctrl-slice');
+      slider.value = pos;
+      document.getElementById('val-slice').textContent = pos.toFixed(2);
+    }
+  });
+
+  self.renderer.domElement.addEventListener('mouseup', function () {
+    if (sliceDragging) {
+      sliceDragging = false;
+      self.controls.enabled = true;
+    }
   });
   $('ctrl-particles').addEventListener('input', function (e) {
     var count = parseInt(e.target.value);
