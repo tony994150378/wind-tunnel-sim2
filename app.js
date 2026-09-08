@@ -175,6 +175,7 @@ function WindTunnelApp() {
   this.stepsPerFrame = 3;
   this.qualityPreset = 'medium';
   this.gpuProfile = null;
+  this.streamlineDensity = 5;
 
   this.initThree();
   this.addLights();
@@ -224,13 +225,20 @@ WindTunnelApp.prototype.initThree = function () {
 };
 
 WindTunnelApp.prototype.addLights = function () {
-  this.scene.add(new THREE.AmbientLight(0x4488cc, 0.6));
-  var d1 = new THREE.DirectionalLight(0xffffff, 0.8);
+  this.scene.add(new THREE.AmbientLight(0x4488cc, 0.8));
+  var d1 = new THREE.DirectionalLight(0xffffff, 1.0);
   d1.position.set(50, 80, 60);
+  d1.castShadow = false;
   this.scene.add(d1);
-  var d2 = new THREE.DirectionalLight(0x4488cc, 0.3);
+  var d2 = new THREE.DirectionalLight(0x4488cc, 0.5);
   d2.position.set(-40, 20, -30);
   this.scene.add(d2);
+  // Add rim light for better model definition
+  var d3 = new THREE.DirectionalLight(0x88aaff, 0.3);
+  d3.position.set(0, -30, 50);
+  this.scene.add(d3);
+  // Hemisphere light for natural ambient
+  this.scene.add(new THREE.HemisphereLight(0x88aacc, 0x223344, 0.4));
 };
 
 WindTunnelApp.prototype.addGround = function () {
@@ -739,12 +747,13 @@ WindTunnelApp.prototype.updateStreamlines = function () {
   var S = this.SIM_SIZE;
   var vel = this.velFieldData;
   var halfS = S / 2;
-  var nSteps = 100;
-  var stepSize = 0.6;
+  var nSteps = 80;
+  var stepSize = 0.7;
 
-  // Seed points: grid upstream
+  // Seed points: grid upstream (density controlled)
   var seeds = [];
-  var nY = 10, nZ = 10;
+  var density = this.streamlineDensity || 5;
+  var nY = density, nZ = density;
   for (var iy = 0; iy < nY; iy++) {
     for (var iz = 0; iz < nZ; iz++) {
       var sy = (iy / (nY-1) - 0.5) * S * 0.85;
@@ -962,12 +971,14 @@ WindTunnelApp.prototype.showModelMesh = function (mesh) {
   geo.setAttribute('normal', new THREE.BufferAttribute(normals, 3));
 
   var mat = new THREE.MeshStandardMaterial({
-    color: 0x4fc3f7,
-    roughness: 0.5,
-    metalness: 0.2,
+    color: 0x6ec6ff,
+    roughness: 0.25,
+    metalness: 0.65,
     transparent: true,
-    opacity: 0.7,
-    side: THREE.DoubleSide
+    opacity: 0.85,
+    side: THREE.DoubleSide,
+    envMapIntensity: 1.0,
+    flatShading: false
   });
 
   this.modelVisual = new THREE.Mesh(geo, mat);
@@ -996,22 +1007,87 @@ WindTunnelApp.prototype.createSphere = function () {
 
 WindTunnelApp.prototype.createCar = function () {
   var verts = [], faces = [], norms = [];
-  function addBox(cx,cy,cz,sx,sy,sz) {
-    var dx=sx/2,dy=sy/2,dz=sz/2, v=verts.length/3;
-    var pts=[[cx-dx,cy-dy,cz-dz],[cx+dx,cy-dy,cz-dz],[cx+dx,cy+dy,cz-dz],[cx-dx,cy+dy,cz-dz],
-             [cx-dx,cy-dy,cz+dz],[cx+dx,cy-dy,cz+dz],[cx+dx,cy+dy,cz+dz],[cx-dx,cy+dy,cz+dz]];
-    for (var p=0;p<pts.length;p++) verts.push(pts[p][0],pts[p][1],pts[p][2]);
+
+  function addTaper(cx,cy,cz,sx1,sy1,sz1,sx2,sy2,sz2) {
+    var v=verts.length/3;
+    var x0=cx-sx1/2,x1=cx+sx1/2,x2=cx-sx2/2,x3=cx+sx2/2;
+    var y0=cy-sy1/2,y1=cy+sy1/2,y2=cy-sy2/2,y3=cy+sy2/2;
+    var z0=cz-sz1/2,z1=cz+sz1/2,z2=cz-sz2/2,z3=cz+sz2/2;
+    verts.push(x0,y0,z0, x1,y0,z0, x1,y1,z0, x0,y1,z0,
+               x2,y2,z2, x3,y2,z2, x3,y3,z2, x2,y3,z2);
     var bf=[[v,v+1,v+2,v,v+2,v+3],[v+4,v+6,v+5,v+4,v+7,v+6],
             [v,v+3,v+7,v,v+7,v+4],[v+1,v+5,v+6,v+1,v+6,v+2],
             [v+3,v+2,v+6,v+3,v+6,v+7],[v,v+4,v+5,v,v+5,v+1]];
-    var bn=[[0,0,-1],[0,0,1],[-1,0,0],[1,0,0],[0,1,0],[0,-1,0]];
-    for (var fi=0;fi<bf.length;fi++) {
-      faces.push(bf[fi][0],bf[fi][1],bf[fi][2],bf[fi][3],bf[fi][4],bf[fi][5]);
-      for (var ni=0;ni<6;ni++) norms.push(bn[fi][0],bn[fi][1],bn[fi][2]);
+    for (var fi=0;fi<6;fi++) faces.push(bf[fi][0],bf[fi][1],bf[fi][2],bf[fi][3],bf[fi][4],bf[fi][5]);
+    for (var fi=0;fi<6;fi++) {
+      var i0=bf[fi][0]*3,i1=bf[fi][1]*3,i2=bf[fi][2]*3;
+      var e1x=verts[i1]-verts[i0],e1y=verts[i1+1]-verts[i0+1],e1z=verts[i1+2]-verts[i0+2];
+      var e2x=verts[i2]-verts[i0],e2y=verts[i2+1]-verts[i0+1],e2z=verts[i2+2]-verts[i0+2];
+      var nx=e1y*e2z-e1z*e2y,ny=e1z*e2x-e1x*e2z,nz=e1x*e2y-e1y*e2x;
+      var len=Math.sqrt(nx*nx+ny*ny+nz*nz)||1;
+      for (var ni=0;ni<6;ni++) norms.push(nx/len,ny/len,nz/len);
     }
   }
-  addBox(0,-0.02,0,0.5,0.12,0.16);
-  addBox(0.02,0.08,0,0.22,0.1,0.14);
+  function addBox(cx,cy,cz,sx,sy,sz) { addTaper(cx,cy,cz,sx,sy,sz,sx,sy,sz); }
+
+  // Body lower (tapered sides)
+  addTaper(0,-0.02,0, 0.52,0.10,0.18, 0.50,0.10,0.16);
+  // Body upper cabin (tapered roof)
+  addTaper(0.02,0.06,0, 0.24,0.09,0.16, 0.26,0.08,0.15);
+  // Windshield (angled)
+  addTaper(-0.10,0.06,0, 0.08,0.08,0.155, 0.12,0.09,0.155);
+  // Rear window (angled)
+  addTaper(0.14,0.05,0, 0.06,0.07,0.15, 0.10,0.06,0.15);
+  // Hood (sloped front)
+  addTaper(-0.18,0.01,0, 0.12,0.06,0.17, 0.14,0.07,0.18);
+  // Trunk (sloped rear)
+  addTaper(0.20,0.01,0, 0.08,0.05,0.17, 0.10,0.06,0.17);
+  // Front bumper (rounded)
+  addTaper(-0.28,-0.01,0, 0.04,0.08,0.19, 0.06,0.07,0.18);
+  // Rear bumper
+  addTaper(0.27,-0.01,0, 0.04,0.08,0.19, 0.06,0.07,0.18);
+  // Front fenders (flared)
+  addTaper(-0.16,-0.01,0.10, 0.10,0.06,0.04, 0.08,0.08,0.05);
+  addTaper(-0.16,-0.01,-0.10, 0.10,0.06,0.04, 0.08,0.08,0.05);
+  // Rear fenders (flared)
+  addTaper(0.16,-0.01,0.10, 0.10,0.06,0.04, 0.08,0.08,0.05);
+  addTaper(0.16,-0.01,-0.10, 0.10,0.06,0.04, 0.08,0.08,0.05);
+  // Side skirts
+  addTaper(0,-0.03,-0.10, 0.40,0.04,0.02, 0.38,0.035,0.018);
+  addTaper(0,-0.03, 0.10, 0.40,0.04,0.02, 0.38,0.035,0.018);
+  // Wheels (octagonal approximation)
+  var wheelY = -0.06;
+  var wheelSegs = 8;
+  function addWheel(cx, cy, cz, r, w) {
+    var baseV = verts.length / 3;
+    for (var s = 0; s <= wheelSegs; s++) {
+      var angle = s * 2 * Math.PI / wheelSegs;
+      var dx = Math.cos(angle) * r, dy = Math.sin(angle) * r;
+      verts.push(cx - w/2, cy + dy, cz + dx);
+      verts.push(cx + w/2, cy + dy, cz + dx);
+      norms.push(-1, 0, 0);
+      norms.push(1, 0, 0);
+    }
+    for (var s = 0; s < wheelSegs; s++) {
+      var a = baseV + s * 2, b = a + 1, c = a + 2, d = a + 3;
+      faces.push(a, c, b, b, c, d);
+    }
+    // Side caps
+    var centerL = verts.length / 3;
+    verts.push(cx - w/2, cy, cz); norms.push(-1, 0, 0);
+    var centerR = verts.length / 3;
+    verts.push(cx + w/2, cy, cz); norms.push(1, 0, 0);
+    for (var s = 0; s < wheelSegs; s++) {
+      var a = baseV + s * 2, b = baseV + ((s + 1) % (wheelSegs + 1)) * 2;
+      faces.push(centerL, b, a);
+      faces.push(centerR, a + 1, b + 1);
+    }
+  }
+  addWheel(-0.14, wheelY, -0.10, 0.035, 0.04);
+  addWheel(-0.14, wheelY, 0.10, 0.035, 0.04);
+  addWheel(0.14, wheelY, -0.10, 0.035, 0.04);
+  addWheel(0.14, wheelY, 0.10, 0.035, 0.04);
+
   return { vertices: verts, faces: faces, normals: norms };
 };
 
@@ -1114,147 +1190,262 @@ WindTunnelApp.prototype.createCylinder = function () {
   return { vertices: verts, faces: faces, normals: norms };
 };
 
-// ---- F1 Race Car (simplified) ----
+// ---- F1 Race Car (improved) ----
 WindTunnelApp.prototype.createF1Car = function () {
   var verts = [], faces = [], norms = [];
-  function addBox(cx,cy,cz,sx,sy,sz) {
-    var dx=sx/2,dy=sy/2,dz=sz/2, v=verts.length/3;
-    var pts=[[cx-dx,cy-dy,cz-dz],[cx+dx,cy-dy,cz-dz],[cx+dx,cy+dy,cz-dz],[cx-dx,cy+dy,cz-dz],
-             [cx-dx,cy-dy,cz+dz],[cx+dx,cy-dy,cz+dz],[cx+dx,cy+dy,cz+dz],[cx-dx,cy+dy,cz+dz]];
-    for (var p=0;p<8;p++) verts.push(pts[p][0],pts[p][1],pts[p][2]);
+
+  function addTaper(cx,cy,cz,sx1,sy1,sz1,sx2,sy2,sz2) {
+    var v=verts.length/3;
+    var x0=cx-sx1/2,x1=cx+sx1/2,x2=cx-sx2/2,x3=cx+sx2/2;
+    var y0=cy-sy1/2,y1=cy+sy1/2,y2=cy-sy2/2,y3=cy+sy2/2;
+    var z0=cz-sz1/2,z1=cz+sz1/2,z2=cz-sz2/2,z3=cz+sz2/2;
+    verts.push(x0,y0,z0, x1,y0,z0, x1,y1,z0, x0,y1,z0,
+               x2,y2,z2, x3,y2,z2, x3,y3,z2, x2,y3,z2);
     var bf=[[v,v+1,v+2,v,v+2,v+3],[v+4,v+6,v+5,v+4,v+7,v+6],
             [v,v+3,v+7,v,v+7,v+4],[v+1,v+5,v+6,v+1,v+6,v+2],
             [v+3,v+2,v+6,v+3,v+6,v+7],[v,v+4,v+5,v,v+5,v+1]];
-    var bn=[[0,0,-1],[0,0,1],[-1,0,0],[1,0,0],[0,1,0],[0,-1,0]];
+    for (var fi=0;fi<6;fi++) faces.push(bf[fi][0],bf[fi][1],bf[fi][2],bf[fi][3],bf[fi][4],bf[fi][5]);
     for (var fi=0;fi<6;fi++) {
-      faces.push(bf[fi][0],bf[fi][1],bf[fi][2],bf[fi][3],bf[fi][4],bf[fi][5]);
-      for (var ni=0;ni<6;ni++) norms.push(bn[fi][0],bn[fi][1],bn[fi][2]);
+      var i0=bf[fi][0]*3,i1=bf[fi][1]*3,i2=bf[fi][2]*3;
+      var e1x=verts[i1]-verts[i0],e1y=verts[i1+1]-verts[i0+1],e1z=verts[i1+2]-verts[i0+2];
+      var e2x=verts[i2]-verts[i0],e2y=verts[i2+1]-verts[i0+1],e2z=verts[i2+2]-verts[i0+2];
+      var nx=e1y*e2z-e1z*e2y,ny=e1z*e2x-e1x*e2z,nz=e1x*e2y-e1y*e2x;
+      var len=Math.sqrt(nx*nx+ny*ny+nz*nz)||1;
+      for (var ni=0;ni<6;ni++) norms.push(nx/len,ny/len,nz/len);
     }
   }
-  // Main body (tapered monocoque)
-  addBox(0, 0, 0, 0.55, 0.07, 0.11);
-  // Nose (pointed)
-  addBox(-0.35, -0.01, 0, 0.15, 0.05, 0.09);
-  addBox(-0.42, -0.01, 0, 0.08, 0.04, 0.07);
-  // Cockpit opening
-  addBox(0.0, 0.05, 0, 0.14, 0.05, 0.10);
-  // Engine cover (slim rear)
-  addBox(0.20, 0.03, 0, 0.22, 0.06, 0.09);
-  // Rear crash structure
-  addBox(0.34, 0.0, 0, 0.05, 0.05, 0.06);
-  // Front wing (wide, thin, curved)
-  addBox(-0.40, -0.04, 0, 0.04, 0.012, 0.40);
-  addBox(-0.38, -0.05, 0, 0.03, 0.010, 0.35);
+  function addBox(cx,cy,cz,sx,sy,sz) { addTaper(cx,cy,cz,sx,sy,sz,sx,sy,sz); }
+  function addWheel(cx, cy, cz, r, w) {
+    var wheelSegs = 8, baseV = verts.length / 3;
+    for (var s = 0; s <= wheelSegs; s++) {
+      var angle = s * 2 * Math.PI / wheelSegs;
+      var dx = Math.cos(angle) * r, dy = Math.sin(angle) * r;
+      verts.push(cx - w/2, cy + dy, cz + dx); verts.push(cx + w/2, cy + dy, cz + dx);
+      norms.push(-1, 0, 0); norms.push(1, 0, 0);
+    }
+    for (var s = 0; s < wheelSegs; s++) { var a = baseV + s*2, b = a+1, c = a+2, d = a+3; faces.push(a, c, b, b, c, d); }
+    var centerL = verts.length / 3; verts.push(cx - w/2, cy, cz); norms.push(-1, 0, 0);
+    var centerR = verts.length / 3; verts.push(cx + w/2, cy, cz); norms.push(1, 0, 0);
+    for (var s = 0; s < wheelSegs; s++) {
+      var a = baseV + s * 2, b = baseV + ((s + 1) % (wheelSegs + 1)) * 2;
+      faces.push(centerL, b, a); faces.push(centerR, a + 1, b + 1);
+    }
+  }
+
+  // Monocoque (tapered chassis)
+  addTaper(-0.10, 0, 0, 0.22, 0.07, 0.10, 0.30, 0.08, 0.12);
+  addTaper( 0.14, 0, 0, 0.30, 0.08, 0.12, 0.20, 0.07, 0.10);
+
+  // Nose (pointed, multi-segment)
+  addTaper(-0.30, -0.01, 0, 0.12, 0.05, 0.08, 0.16, 0.065, 0.09);
+  addTaper(-0.38, -0.01, 0, 0.06, 0.04, 0.06, 0.12, 0.05, 0.08);
+  addTaper(-0.42, -0.01, 0, 0.03, 0.03, 0.04, 0.06, 0.04, 0.06);
+
+  // Cockpit
+  addBox(0.0, 0.055, 0, 0.15, 0.05, 0.10);
+  // Headrest
+  addTaper(0.06, 0.06, 0, 0.06, 0.04, 0.08, 0.04, 0.02, 0.06);
+
+  // Engine cover (slim, tapered)
+  addTaper(0.18, 0.04, 0, 0.10, 0.06, 0.09, 0.20, 0.05, 0.08);
+  addTaper(0.28, 0.02, 0, 0.08, 0.04, 0.07, 0.06, 0.03, 0.05);
+
+  // Airbox (above driver)
+  addTaper(-0.02, 0.08, 0, 0.03, 0.04, 0.03, 0.05, 0.06, 0.04);
+
+  // Front wing (multi-element, wide)
+  addBox(-0.42, -0.04, 0, 0.04, 0.010, 0.42);
+  addBox(-0.40, -0.05, 0, 0.03, 0.008, 0.38);
+  addBox(-0.38, -0.055, 0, 0.025, 0.006, 0.34);
   // Front wing endplates
-  addBox(-0.40, -0.03, 0.21, 0.05, 0.04, 0.008);
-  addBox(-0.40, -0.03, -0.21, 0.05, 0.04, 0.008);
-  // Rear wing (tall, narrow)
-  addBox(0.34, 0.08, 0, 0.025, 0.05, 0.28);
-  addBox(0.33, 0.06, 0, 0.020, 0.04, 0.24);
+  addTaper(-0.42, -0.03, 0.22, 0.06, 0.04, 0.01, 0.04, 0.03, 0.008);
+  addTaper(-0.42, -0.03, -0.22, 0.06, 0.04, 0.01, 0.04, 0.03, 0.008);
+
+  // Rear wing (tall, multi-element)
+  addBox(0.34, 0.09, 0, 0.025, 0.06, 0.30);
+  addBox(0.33, 0.07, 0, 0.020, 0.05, 0.26);
+  addBox(0.32, 0.05, 0, 0.018, 0.04, 0.22);
   // Rear wing endplates
-  addBox(0.34, 0.06, 0.15, 0.035, 0.09, 0.008);
-  addBox(0.34, 0.06, -0.15, 0.035, 0.09, 0.008);
-  // Rear wing support pillar
-  addBox(0.34, 0.02, 0, 0.012, 0.04, 0.012);
-  // Front wheels (cylindrical approximation)
-  addBox(-0.24, -0.06, 0.12, 0.07, 0.08, 0.05);
-  addBox(-0.24, -0.06, -0.12, 0.07, 0.08, 0.05);
-  // Rear wheels
-  addBox(0.26, -0.06, 0.13, 0.09, 0.08, 0.06);
-  addBox(0.26, -0.06, -0.13, 0.09, 0.08, 0.06);
-  // Sidepods (wider, lower)
-  addBox(0.06, -0.02, 0.09, 0.20, 0.05, 0.05);
-  addBox(0.06, -0.02, -0.09, 0.20, 0.05, 0.05);
+  addTaper(0.34, 0.06, 0.16, 0.04, 0.10, 0.01, 0.03, 0.08, 0.008);
+  addTaper(0.34, 0.06, -0.16, 0.04, 0.10, 0.01, 0.03, 0.08, 0.008);
+  // Rear wing pillar
+  addBox(0.34, 0.02, 0, 0.015, 0.05, 0.015);
+
+  // Front wheels (rounded)
+  addWheel(-0.24, -0.06, 0.13, 0.04, 0.06);
+  addWheel(-0.24, -0.06, -0.13, 0.04, 0.06);
+  // Rear wheels (wider)
+  addWheel(0.26, -0.06, 0.14, 0.05, 0.08);
+  addWheel(0.26, -0.06, -0.14, 0.05, 0.08);
+
+  // Sidepods (sculpted)
+  addTaper(0.06, -0.02, 0.10, 0.08, 0.05, 0.04, 0.20, 0.06, 0.06);
+  addTaper(0.06, -0.02, -0.10, 0.08, 0.05, 0.04, 0.20, 0.06, 0.06);
   // Sidepod inlets
-  addBox(-0.06, 0.01, 0.10, 0.04, 0.04, 0.02);
-  addBox(-0.06, 0.01, -0.10, 0.04, 0.04, 0.02);
+  addTaper(-0.06, 0.01, 0.11, 0.03, 0.03, 0.02, 0.05, 0.05, 0.03);
+  addTaper(-0.06, 0.01, -0.11, 0.03, 0.03, 0.02, 0.05, 0.05, 0.03);
+
   // Floor/diffuser
-  addBox(0.05, -0.05, 0, 0.40, 0.008, 0.18);
+  addTaper(0.05, -0.05, 0, 0.20, 0.008, 0.16, 0.40, 0.010, 0.20);
+  // Diffuser strakes
+  addBox(0.25, -0.045, 0.05, 0.10, 0.02, 0.006);
+  addBox(0.25, -0.045, -0.05, 0.10, 0.02, 0.006);
+  addBox(0.25, -0.045, 0, 0.10, 0.02, 0.006);
+
+  // Brake ducts
+  addBox(-0.22, -0.04, 0.13, 0.03, 0.03, 0.02);
+  addBox(-0.22, -0.04, -0.13, 0.03, 0.03, 0.02);
+  addBox(0.24, -0.04, 0.14, 0.03, 0.03, 0.02);
+  addBox(0.24, -0.04, -0.14, 0.03, 0.03, 0.02);
+
   return { vertices: verts, faces: faces, normals: norms };
 };
 
-// ---- Bridge ----
+// ---- Bridge (improved with arch and details) ----
 WindTunnelApp.prototype.createBridge = function () {
   var verts = [], faces = [], norms = [];
-  function addBox(cx,cy,cz,sx,sy,sz) {
-    var dx=sx/2,dy=sy/2,dz=sz/2, v=verts.length/3;
-    var pts=[[cx-dx,cy-dy,cz-dz],[cx+dx,cy-dy,cz-dz],[cx+dx,cy+dy,cz-dz],[cx-dx,cy+dy,cz-dz],
-             [cx-dx,cy-dy,cz+dz],[cx+dx,cy-dy,cz+dz],[cx+dx,cy+dy,cz+dz],[cx-dx,cy+dy,cz+dz]];
-    for (var p=0;p<8;p++) verts.push(pts[p][0],pts[p][1],pts[p][2]);
+
+  function addTaper(cx,cy,cz,sx1,sy1,sz1,sx2,sy2,sz2) {
+    var v=verts.length/3;
+    var x0=cx-sx1/2,x1=cx+sx1/2,x2=cx-sx2/2,x3=cx+sx2/2;
+    var y0=cy-sy1/2,y1=cy+sy1/2,y2=cy-sy2/2,y3=cy+sy2/2;
+    var z0=cz-sz1/2,z1=cz+sz1/2,z2=cz-sz2/2,z3=cz+sz2/2;
+    verts.push(x0,y0,z0, x1,y0,z0, x1,y1,z0, x0,y1,z0,
+               x2,y2,z2, x3,y2,z2, x3,y3,z2, x2,y3,z2);
     var bf=[[v,v+1,v+2,v,v+2,v+3],[v+4,v+6,v+5,v+4,v+7,v+6],
             [v,v+3,v+7,v,v+7,v+4],[v+1,v+5,v+6,v+1,v+6,v+2],
             [v+3,v+2,v+6,v+3,v+6,v+7],[v,v+4,v+5,v,v+5,v+1]];
-    var bn=[[0,0,-1],[0,0,1],[-1,0,0],[1,0,0],[0,1,0],[0,-1,0]];
+    for (var fi=0;fi<6;fi++) faces.push(bf[fi][0],bf[fi][1],bf[fi][2],bf[fi][3],bf[fi][4],bf[fi][5]);
     for (var fi=0;fi<6;fi++) {
-      faces.push(bf[fi][0],bf[fi][1],bf[fi][2],bf[fi][3],bf[fi][4],bf[fi][5]);
-      for (var ni=0;ni<6;ni++) norms.push(bn[fi][0],bn[fi][1],bn[fi][2]);
+      var i0=bf[fi][0]*3,i1=bf[fi][1]*3,i2=bf[fi][2]*3;
+      var e1x=verts[i1]-verts[i0],e1y=verts[i1+1]-verts[i0+1],e1z=verts[i1+2]-verts[i0+2];
+      var e2x=verts[i2]-verts[i0],e2y=verts[i2+1]-verts[i0+1],e2z=verts[i2+2]-verts[i0+2];
+      var nx=e1y*e2z-e1z*e2y,ny=e1z*e2x-e1x*e2z,nz=e1x*e2y-e1y*e2x;
+      var len=Math.sqrt(nx*nx+ny*ny+nz*nz)||1;
+      for (var ni=0;ni<6;ni++) norms.push(nx/len,ny/len,nz/len);
     }
   }
-  // Deck (road surface)
-  addBox(0, 0, 0, 0.7, 0.03, 0.22);
-  // Side rails
-  addBox(0, 0.04, 0.11, 0.7, 0.05, 0.015);
-  addBox(0, 0.04, -0.11, 0.7, 0.05, 0.015);
-  // Pillars (3 supports)
-  addBox(-0.22, -0.10, 0, 0.03, 0.18, 0.04);
-  addBox(0, -0.10, 0, 0.03, 0.18, 0.04);
-  addBox(0.22, -0.10, 0, 0.03, 0.18, 0.04);
-  // Arch (simplified as angled boxes)
-  addBox(-0.11, 0.10, 0, 0.24, 0.025, 0.03);
-  addBox(0.11, 0.10, 0, 0.24, 0.025, 0.03);
-  // Cross bracing
-  addBox(-0.11, 0.06, 0.08, 0.015, 0.06, 0.015);
-  addBox(-0.11, 0.06, -0.08, 0.015, 0.06, 0.015);
-  addBox(0.11, 0.06, 0.08, 0.015, 0.06, 0.015);
-  addBox(0.11, 0.06, -0.08, 0.015, 0.06, 0.015);
+  function addBox(cx,cy,cz,sx,sy,sz) { addTaper(cx,cy,cz,sx,sy,sz,sx,sy,sz); }
+
+  // Deck (road surface, tapered edges)
+  addTaper(0, 0, 0, 0.72, 0.03, 0.24, 0.72, 0.025, 0.22);
+  // Deck underside reinforcement
+  addBox(0, -0.02, 0, 0.70, 0.015, 0.20);
+
+  // Side rails (with tapered top)
+  addTaper(0, 0.035, 0.115, 0.72, 0.04, 0.012, 0.72, 0.05, 0.015);
+  addTaper(0, 0.035, -0.115, 0.72, 0.04, 0.012, 0.72, 0.05, 0.015);
+
+  // Main arch (curved, multi-segment)
+  addTaper(-0.18, 0.08, 0, 0.08, 0.06, 0.04, 0.12, 0.08, 0.04);
+  addTaper(-0.08, 0.13, 0, 0.12, 0.08, 0.04, 0.12, 0.06, 0.04);
+  addTaper( 0.02, 0.15, 0, 0.12, 0.06, 0.04, 0.12, 0.04, 0.04);
+  addTaper( 0.12, 0.13, 0, 0.12, 0.04, 0.04, 0.12, 0.08, 0.04);
+  addTaper( 0.22, 0.08, 0, 0.08, 0.08, 0.04, 0.08, 0.06, 0.04);
+
+  // Arch supports (tapered pillars)
+  addTaper(-0.28, -0.08, 0, 0.035, 0.20, 0.05, 0.04, 0.14, 0.06);
+  addTaper( 0.02, -0.08, 0, 0.035, 0.20, 0.05, 0.04, 0.14, 0.06);
+  addTaper( 0.32, -0.08, 0, 0.035, 0.20, 0.05, 0.04, 0.14, 0.06);
+
+  // Vertical suspender cables (from arch to deck)
+  addBox(-0.14, 0.06, 0.06, 0.008, 0.08, 0.008);
+  addBox(-0.14, 0.06, -0.06, 0.008, 0.08, 0.008);
+  addBox(0.02, 0.10, 0.06, 0.008, 0.12, 0.008);
+  addBox(0.02, 0.10, -0.06, 0.008, 0.12, 0.008);
+  addBox(0.18, 0.06, 0.06, 0.008, 0.08, 0.008);
+  addBox(0.18, 0.06, -0.06, 0.008, 0.08, 0.008);
+
+  // Cross bracing (X-pattern)
+  addBox(-0.14, 0.04, 0.08, 0.012, 0.05, 0.012);
+  addBox(-0.14, 0.04, -0.08, 0.012, 0.05, 0.012);
+  addBox(0.02, 0.04, 0.08, 0.012, 0.05, 0.012);
+  addBox(0.02, 0.04, -0.08, 0.012, 0.05, 0.012);
+  addBox(0.18, 0.04, 0.08, 0.012, 0.05, 0.012);
+  addBox(0.18, 0.04, -0.08, 0.012, 0.05, 0.012);
+
+  // Approach ramps (tapered)
+  addTaper(-0.40, -0.01, 0, 0.08, 0.04, 0.22, 0.12, 0.03, 0.23);
+  addTaper( 0.40, -0.01, 0, 0.08, 0.04, 0.22, 0.12, 0.03, 0.23);
+
   return { vertices: verts, faces: faces, normals: norms };
 };
 
-// ---- Airplane (simplified) ----
+// ---- Airplane (improved with smooth fuselage) ----
 WindTunnelApp.prototype.createAirplane = function () {
   var verts = [], faces = [], norms = [];
-  function addBox(cx,cy,cz,sx,sy,sz) {
-    var dx=sx/2,dy=sy/2,dz=sz/2, v=verts.length/3;
-    var pts=[[cx-dx,cy-dy,cz-dz],[cx+dx,cy-dy,cz-dz],[cx+dx,cy+dy,cz-dz],[cx-dx,cy+dy,cz-dz],
-             [cx-dx,cy-dy,cz+dz],[cx+dx,cy-dy,cz+dz],[cx+dx,cy+dy,cz+dz],[cx-dx,cy+dy,cz+dz]];
-    for (var p=0;p<8;p++) verts.push(pts[p][0],pts[p][1],pts[p][2]);
+
+  // Helper: add a tapered box (frustum)
+  function addTaper(cx,cy,cz,sx1,sy1,sz1,sx2,sy2,sz2) {
+    var v=verts.length/3;
+    var x0=cx-sx1/2,x1=cx+sx1/2,x2=cx-sx2/2,x3=cx+sx2/2;
+    var y0=cy-sy1/2,y1=cy+sy1/2,y2=cy-sy2/2,y3=cy+sy2/2;
+    var z0=cz-sz1/2,z1=cz+sz1/2,z2=cz-sz2/2,z3=cz+sz2/2;
+    verts.push(x0,y0,z0, x1,y0,z0, x1,y1,z0, x0,y1,z0,
+               x2,y2,z2, x3,y2,z2, x3,y3,z2, x2,y3,z2);
     var bf=[[v,v+1,v+2,v,v+2,v+3],[v+4,v+6,v+5,v+4,v+7,v+6],
             [v,v+3,v+7,v,v+7,v+4],[v+1,v+5,v+6,v+1,v+6,v+2],
             [v+3,v+2,v+6,v+3,v+6,v+7],[v,v+4,v+5,v,v+5,v+1]];
-    var bn=[[0,0,-1],[0,0,1],[-1,0,0],[1,0,0],[0,1,0],[0,-1,0]];
+    for (var fi=0;fi<6;fi++) faces.push(bf[fi][0],bf[fi][1],bf[fi][2],bf[fi][3],bf[fi][4],bf[fi][5]);
+    // Compute face normals
     for (var fi=0;fi<6;fi++) {
-      faces.push(bf[fi][0],bf[fi][1],bf[fi][2],bf[fi][3],bf[fi][4],bf[fi][5]);
-      for (var ni=0;ni<6;ni++) norms.push(bn[fi][0],bn[fi][1],bn[fi][2]);
+      var i0=bf[fi][0]*3,i1=bf[fi][1]*3,i2=bf[fi][2]*3;
+      var e1x=verts[i1]-verts[i0],e1y=verts[i1+1]-verts[i0+1],e1z=verts[i1+2]-verts[i0+2];
+      var e2x=verts[i2]-verts[i0],e2y=verts[i2+1]-verts[i0+1],e2z=verts[i2+2]-verts[i0+2];
+      var nx=e1y*e2z-e1z*e2y,ny=e1z*e2x-e1x*e2z,nz=e1x*e2y-e1y*e2x;
+      var len=Math.sqrt(nx*nx+ny*ny+nz*nz)||1;
+      for (var ni=0;ni<6;ni++) norms.push(nx/len,ny/len,nz/len);
     }
   }
-  // Fuselage (long, slim)
-  addBox(0, 0, 0, 0.70, 0.07, 0.07);
-  // Nose (pointed)
-  addBox(-0.40, 0, 0, 0.10, 0.05, 0.05);
-  addBox(-0.45, 0, 0, 0.06, 0.035, 0.035);
-  // Cockpit canopy
-  addBox(-0.18, 0.045, 0, 0.14, 0.035, 0.055);
-  // Main wings (swept back)
-  addBox(0.02, 0, 0.22, 0.20, 0.012, 0.28);
-  addBox(0.02, 0, -0.22, 0.20, 0.012, 0.28);
-  // Wing sweep (angled section)
-  addBox(0.06, 0, 0.36, 0.12, 0.010, 0.08);
-  addBox(0.06, 0, -0.36, 0.12, 0.010, 0.08);
-  // Wing tips
-  addBox(0.04, 0.015, 0.40, 0.05, 0.02, 0.015);
-  addBox(0.04, 0.015, -0.40, 0.05, 0.02, 0.015);
-  // Tail vertical stabilizer (fin)
-  addBox(0.30, 0.07, 0, 0.10, 0.10, 0.012);
-  addBox(0.28, 0.05, 0, 0.06, 0.06, 0.010);
-  // Tail horizontal stabilizer
-  addBox(0.30, 0.015, 0.10, 0.10, 0.010, 0.10);
-  addBox(0.30, 0.015, -0.10, 0.10, 0.010, 0.10);
-  // Engine nacelles (under wings)
-  addBox(-0.02, -0.04, 0.15, 0.10, 0.04, 0.04);
-  addBox(-0.02, -0.04, -0.15, 0.10, 0.04, 0.04);
+
+  function addBox(cx,cy,cz,sx,sy,sz) { addTaper(cx,cy,cz,sx,sy,sz,sx,sy,sz); }
+
+  // Fuselage segments (tapered from nose to tail)
+  addTaper(-0.42, 0, 0, 0.04, 0.03, 0.03, 0.10, 0.06, 0.06);   // nose tip
+  addTaper(-0.34, 0, 0, 0.10, 0.06, 0.06, 0.14, 0.075, 0.075); // nose mid
+  addTaper(-0.22, 0, 0, 0.14, 0.075, 0.075, 0.18, 0.08, 0.08); // front fuselage
+  addTaper(-0.06, 0, 0, 0.18, 0.08, 0.08, 0.20, 0.08, 0.08);  // center fuselage
+  addTaper( 0.10, 0, 0, 0.20, 0.08, 0.08, 0.18, 0.075, 0.075); // mid fuselage
+  addTaper( 0.24, 0, 0, 0.18, 0.075, 0.075, 0.12, 0.06, 0.06); // rear fuselage
+  addTaper( 0.34, 0, 0, 0.12, 0.06, 0.06, 0.06, 0.04, 0.04);  // tail cone
+
+  // Cockpit canopy (smooth bubble)
+  addBox(-0.18, 0.05, 0, 0.16, 0.04, 0.06);
+  addTaper(-0.22, 0.048, 0, 0.04, 0.025, 0.05, 0.06, 0.035, 0.058);
+  addTaper(-0.12, 0.048, 0, 0.06, 0.035, 0.058, 0.04, 0.02, 0.04);
+
+  // Main wings (swept, tapered)
+  addTaper(0.02, 0, 0.14, 0.22, 0.014, 0.16, 0.14, 0.010, 0.10);
+  addTaper(0.02, 0, 0.28, 0.14, 0.010, 0.10, 0.08, 0.008, 0.06);
+  addTaper(0.02, 0, -0.14, 0.22, 0.014, 0.16, 0.14, 0.010, 0.10);
+  addTaper(0.02, 0, -0.28, 0.14, 0.010, 0.10, 0.08, 0.008, 0.06);
+
+  // Wing tips (upward curve)
+  addBox(0.04, 0.02, 0.34, 0.06, 0.025, 0.02);
+  addBox(0.04, 0.02, -0.34, 0.06, 0.025, 0.02);
+
+  // Tail vertical stabilizer (tapered)
+  addTaper(0.30, 0.04, 0, 0.04, 0.06, 0.012, 0.10, 0.10, 0.014);
+  addTaper(0.28, 0.02, 0, 0.06, 0.03, 0.010, 0.04, 0.06, 0.012);
+
+  // Tail horizontal stabilizer (swept)
+  addTaper(0.30, 0.02, 0.08, 0.10, 0.010, 0.08, 0.06, 0.008, 0.04);
+  addTaper(0.30, 0.02, -0.08, 0.10, 0.010, 0.08, 0.06, 0.008, 0.04);
+
+  // Engine nacelles (tapered cylinders)
+  addTaper(-0.04, -0.045, 0.16, 0.06, 0.04, 0.04, 0.10, 0.05, 0.05);
+  addTaper(-0.04, -0.045, -0.16, 0.06, 0.04, 0.04, 0.10, 0.05, 0.05);
+  // Engine inlets
+  addBox(-0.08, -0.045, 0.16, 0.02, 0.045, 0.045);
+  addBox(-0.08, -0.045, -0.16, 0.02, 0.045, 0.045);
   // Engine pylons
-  addBox(-0.02, -0.02, 0.15, 0.02, 0.02, 0.01);
-  addBox(-0.02, -0.02, -0.15, 0.02, 0.02, 0.01);
+  addBox(-0.03, -0.025, 0.16, 0.025, 0.02, 0.012);
+  addBox(-0.03, -0.025, -0.16, 0.025, 0.02, 0.012);
+
+  // Wing root fairings
+  addBox(0.02, -0.01, 0.10, 0.18, 0.025, 0.04);
+  addBox(0.02, -0.01, -0.10, 0.18, 0.025, 0.04);
+
   return { vertices: verts, faces: faces, normals: norms };
 };
 
@@ -1326,7 +1517,7 @@ WindTunnelApp.prototype.parseOBJ = function (text) {
 WindTunnelApp.prototype.parseSTL = function (buffer) {
   var verts = [], faces = [], norms = [];
   var dv = new DataView(buffer);
-  if (buffer.byteLength < 84) return { vertices: verts, faces: faces, normals: norms };
+  if (buffer.byteLength < 84) return { vertices: verts, faces: faces, normals: norms, error: '文件太小，不是有效的STL文件' };
 
   var isASCII = String.fromCharCode(dv.getUint8(0),dv.getUint8(1),dv.getUint8(2),dv.getUint8(3),dv.getUint8(4)).toLowerCase() === 'solid';
 
@@ -1348,13 +1539,19 @@ WindTunnelApp.prototype.parseSTL = function (buffer) {
     }
   } else {
     var nTriangles = dv.getUint32(80, true);
+    if (nTriangles === 0) return { vertices: verts, faces: faces, normals: norms, error: 'STL文件不包含任何三角面' };
+    if (nTriangles > 2000000) return { vertices: verts, faces: faces, normals: norms, error: 'STL文件三角面过多 (' + nTriangles + ')，请简化模型后重试' };
     var offset = 84;
+    var requiredSize = 84 + nTriangles * 50;
+    if (buffer.byteLength < requiredSize) return { vertices: verts, faces: faces, normals: norms, error: 'STL文件数据不完整，期望 ' + nTriangles + ' 个三角面' };
     for (var ti = 0; ti < nTriangles; ti++) {
       var snx=dv.getFloat32(offset,true),sny=dv.getFloat32(offset+4,true),snz=dv.getFloat32(offset+8,true);
       offset+=12;
       var bv2=verts.length/3;
       for (var sv=0;sv<3;sv++) {
-        verts.push(dv.getFloat32(offset,true),dv.getFloat32(offset+4,true),dv.getFloat32(offset+8,true));
+        var px=dv.getFloat32(offset,true),py=dv.getFloat32(offset+4,true),pz=dv.getFloat32(offset+8,true);
+        if (isNaN(px)||isNaN(py)||isNaN(pz)) return { vertices: verts, faces: faces, normals: norms, error: 'STL文件第 ' + (ti+1) + ' 个三角面包含无效坐标' };
+        verts.push(px,py,pz);
         norms.push(snx,sny,snz);
         offset+=12;
       }
@@ -1362,32 +1559,89 @@ WindTunnelApp.prototype.parseSTL = function (buffer) {
       offset+=2;
     }
   }
+
+  // Validate result
+  if (verts.length === 0) return { vertices: verts, faces: faces, normals: norms, error: 'STL文件未解析到任何顶点' };
+  if (faces.length === 0) return { vertices: verts, faces: faces, normals: norms, error: 'STL文件未解析到任何三角面' };
+
+  // Check for degenerate model (all points same)
+  var minX=Infinity,maxX=-Infinity,minY=Infinity,maxY=-Infinity,minZ=Infinity,maxZ=-Infinity;
+  for (var i=0;i<verts.length;i+=3) {
+    if(verts[i]<minX)minX=verts[i]; if(verts[i]>maxX)maxX=verts[i];
+    if(verts[i+1]<minY)minY=verts[i+1]; if(verts[i+1]>maxY)maxY=verts[i+1];
+    if(verts[i+2]<minZ)minZ=verts[i+2]; if(verts[i+2]>maxZ)maxZ=verts[i+2];
+  }
+  var sizeX=maxX-minX, sizeY=maxY-minY, sizeZ=maxZ-minZ;
+  if (sizeX < 1e-10 && sizeY < 1e-10 && sizeZ < 1e-10) return { vertices: verts, faces: faces, normals: norms, error: '模型尺寸为零，请检查文件' };
+
   return { vertices: verts, faces: faces, normals: norms };
 };
 
 WindTunnelApp.prototype.loadFile = function (file) {
   var self = this;
   document.getElementById('status-text').textContent = '加载 ' + file.name + '...';
+
+  // File size check
+  if (file.size > 50 * 1024 * 1024) {
+    document.getElementById('status-text').textContent = '❌ 文件过大 (' + (file.size/1024/1024).toFixed(1) + 'MB)，请使用小于50MB的文件';
+    return;
+  }
+  if (file.size === 0) {
+    document.getElementById('status-text').textContent = '❌ 文件为空';
+    return;
+  }
+
   if (file.name.toLowerCase().endsWith('.obj')) {
     var reader = new FileReader();
     reader.onload = function (e) {
-      var mesh = self.parseOBJ(e.target.result);
-      self.currentModelMesh = mesh;
-      self.currentModel = file.name;
-      self.voxelizeAndLoad(mesh);
+      try {
+        var mesh = self.parseOBJ(e.target.result);
+        if (!mesh || !mesh.vertices || mesh.vertices.length === 0) {
+          document.getElementById('status-text').textContent = '❌ OBJ文件解析失败：未找到有效顶点';
+          return;
+        }
+        if (!mesh.faces || mesh.faces.length === 0) {
+          document.getElementById('status-text').textContent = '❌ OBJ文件解析失败：未找到有效面';
+          return;
+        }
+        self.currentModelMesh = mesh;
+        self.currentModel = file.name;
+        var triCount = mesh.faces.length / 3;
+        document.getElementById('status-text').textContent = '✅ ' + file.name + ' 已加载 (' + triCount + ' 个三角面)';
+        self.voxelizeAndLoad(mesh);
+      } catch (err) {
+        document.getElementById('status-text').textContent = '❌ OBJ解析错误: ' + err.message;
+        console.error('[OBJ Parse Error]', err);
+      }
     };
     reader.readAsText(file);
   } else if (file.name.toLowerCase().endsWith('.stl')) {
     var reader2 = new FileReader();
     reader2.onload = function (e) {
-      var mesh = self.parseSTL(e.target.result);
-      self.currentModelMesh = mesh;
-      self.currentModel = file.name;
-      self.voxelizeAndLoad(mesh);
+      try {
+        var mesh = self.parseSTL(e.target.result);
+        if (mesh.error) {
+          document.getElementById('status-text').textContent = '❌ STL错误: ' + mesh.error;
+          return;
+        }
+        if (!mesh.vertices || mesh.vertices.length === 0) {
+          document.getElementById('status-text').textContent = '❌ STL文件解析失败：未找到有效顶点';
+          return;
+        }
+        self.currentModelMesh = mesh;
+        self.currentModel = file.name;
+        var triCount = mesh.faces.length / 3;
+        document.getElementById('status-text').textContent = '✅ ' + file.name + ' 已加载 (' + triCount + ' 个三角面)';
+        self.showModelMesh(mesh);
+        self.voxelizeAndLoad(mesh);
+      } catch (err) {
+        document.getElementById('status-text').textContent = '❌ STL解析错误: ' + err.message;
+        console.error('[STL Parse Error]', err);
+      }
     };
     reader2.readAsArrayBuffer(file);
   } else {
-    document.getElementById('status-text').textContent = '不支持的格式，请使用 OBJ 或 STL';
+    document.getElementById('status-text').textContent = '❌ 不支持的格式，请使用 OBJ 或 STL';
   }
 };
 
@@ -1417,6 +1671,27 @@ WindTunnelApp.prototype.voxelizeAndLoad = function (mesh) {
   gMinY=Math.max(1,gMinY); gMaxY=Math.min(S-2,gMaxY);
   gMinZ=Math.max(1,gMinZ); gMaxZ=Math.min(S-2,gMaxZ);
 
+  // Pre-compute triangle bounding boxes in grid space for acceleration
+  var nTri = faces.length / 3;
+  var triBBox = new Float32Array(nTri * 6); // [minX,minY,minZ,maxX,maxY,maxZ] per tri
+  for (var ti = 0; ti < nTri; ti++) {
+    var i0 = faces[ti*3]*3, i1 = faces[ti*3+1]*3, i2 = faces[ti*3+2]*3;
+    var tMinX = Math.min(v[i0], v[i1], v[i2]);
+    var tMinY = Math.min(v[i0+1], v[i1+1], v[i2+1]);
+    var tMinZ = Math.min(v[i0+2], v[i1+2], v[i2+2]);
+    var tMaxX = Math.max(v[i0], v[i1], v[i2]);
+    var tMaxY = Math.max(v[i0+1], v[i1+1], v[i2+1]);
+    var tMaxZ = Math.max(v[i0+2], v[i1+2], v[i2+2]);
+    // Expand by cell size for safety
+    var cellWorld = 1.0 / cellScale;
+    triBBox[ti*6]   = tMinX - cellWorld;
+    triBBox[ti*6+1] = tMinY - cellWorld;
+    triBBox[ti*6+2] = tMinZ - cellWorld;
+    triBBox[ti*6+3] = tMaxX + cellWorld;
+    triBBox[ti*6+4] = tMaxY + cellWorld;
+    triBBox[ti*6+5] = tMaxZ + cellWorld;
+  }
+
   // Build cell list
   var cells = [];
   for (var gz=gMinZ;gz<=gMaxZ;gz++)
@@ -1425,18 +1700,26 @@ WindTunnelApp.prototype.voxelizeAndLoad = function (mesh) {
         cells.push(gx,gy,gz);
 
   var eps=1e-9, solidCount=0, idx=0;
-  var CHUNK = 8000; // cells per chunk (3 ints each)
+  var CHUNK = 4000; // smaller chunks for better UI responsiveness
+  var totalCells = cells.length / 3;
 
-  document.getElementById('status-text').textContent = '体素化中...';
+  document.getElementById('status-text').textContent = '体素化中... (0%)';
 
   function processChunk() {
+    var startTime = performance.now();
     var end = Math.min(idx + CHUNK * 3, cells.length);
     for (var ci = idx; ci < end; ci += 3) {
       var gx=cells[ci], gy=cells[ci+1], gz=cells[ci+2];
       var wx=(gx-S/2)/cellScale+cx, wy=(gy-S/2)/cellScale+cy, wz=(gz-S/2)/cellScale+cz;
       var hits=0;
-      for (var fi=0;fi<faces.length;fi+=3) {
-        var i0=faces[fi]*3,i1=faces[fi+1]*3,i2=faces[fi+2]*3;
+      for (var fi=0;fi<nTri;fi++) {
+        // Bounding box pre-filter: skip triangles far from this cell
+        var bb = fi * 6;
+        if (wx < triBBox[bb] || wx > triBBox[bb+3] ||
+            wy < triBBox[bb+1] || wy > triBBox[bb+4] ||
+            wz < triBBox[bb+2] || wz > triBBox[bb+5]) continue;
+
+        var i0=faces[fi*3]*3,i1=faces[fi*3+1]*3,i2=faces[fi*3+2]*3;
         var ax=v[i0],ay=v[i0+1],az=v[i0+2];
         var e1x=v[i1]-ax,e1y=v[i1+1]-ay,e1z=v[i1+2]-az;
         var e2x=v[i2]-ax,e2y=v[i2+1]-ay,e2z=v[i2+2]-az;
@@ -1455,12 +1738,15 @@ WindTunnelApp.prototype.voxelizeAndLoad = function (mesh) {
     }
     idx = end;
 
+    var pct = Math.round(idx/cells.length*100);
+    var elapsed = ((performance.now() - startTime) / 1000).toFixed(1);
+    document.getElementById('status-text').textContent =
+      '体素化中... ' + pct + '% (' + solidCount + ' 个固体网格, ' + elapsed + 's/chunk)';
+
     if (idx < cells.length) {
-      document.getElementById('status-text').textContent =
-        '体素化中... ' + Math.round(idx/cells.length*100) + '%';
       setTimeout(processChunk, 0);
     } else {
-      document.getElementById('status-text').textContent = '模型已加载 (' + solidCount + ' 个固体网格)';
+      document.getElementById('status-text').textContent = '✅ 模型已加载 (' + solidCount + ' 个固体网格)';
       self.worker.postMessage({ type: 'loadObstacle', data: obstacle.buffer }, [obstacle.buffer]);
     }
   }
@@ -1610,6 +1896,19 @@ WindTunnelApp.prototype.initUI = function () {
       self.loadFile(e.target.files[0]);
     }
   });
+
+  // Streamline density
+  var ctrlStreamlines = document.getElementById('ctrl-streamlines');
+  if (ctrlStreamlines) {
+    ctrlStreamlines.addEventListener('input', function (e) {
+      self.streamlineDensity = parseInt(e.target.value);
+      var label = document.getElementById('val-streamlines');
+      if (label) label.textContent = self.streamlineDensity;
+    });
+    ctrlStreamlines.addEventListener('change', function () {
+      if (self.velFieldData) self.updateStreamlines();
+    });
+  }
 
   // Scale
   $('ctrl-scale').addEventListener('input', function (e) {
