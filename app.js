@@ -505,6 +505,7 @@ WindTunnelApp.prototype.initSlice = function () {
     'uniform sampler3D uVelocityField;',
     'uniform float uSlicePos;',
     'uniform int uColormap;',
+    'uniform int uSliceAxis;',
     'varying vec2 vUv;',
     'vec3 getColor(float t, int cmap) {',
     '  if (cmap == 1) {',
@@ -523,7 +524,10 @@ WindTunnelApp.prototype.initSlice = function () {
     '  }',
     '}',
     'void main() {',
-    '  vec3 tc = vec3(uSlicePos, vUv.x, vUv.y);',
+    '  vec3 tc;',
+    '  if (uSliceAxis == 1) { tc = vec3(vUv.x, uSlicePos, vUv.y); }',
+    '  else if (uSliceAxis == 2) { tc = vec3(vUv.x, vUv.y, uSlicePos); }',
+    '  else { tc = vec3(uSlicePos, vUv.x, vUv.y); }',
     '  vec3 vel = texture(uVelocityField, clamp(tc, 0.005, 0.995)).rgb;',
     '  float speed = length(vel);',
     '  float t = clamp(speed * 6.0, 0.0, 1.0);',
@@ -538,7 +542,8 @@ WindTunnelApp.prototype.initSlice = function () {
     uniforms: {
       uVelocityField: { value: this.velTexture },
       uSlicePos: { value: 0.5 },
-      uColormap: { value: 0 }
+      uColormap: { value: 0 },
+      uSliceAxis: { value: 0 }
     },
     transparent: true,
     side: THREE.DoubleSide,
@@ -548,6 +553,7 @@ WindTunnelApp.prototype.initSlice = function () {
   this.sliceMesh = new THREE.Mesh(geo, mat);
   this.sliceMesh.rotation.y = Math.PI / 2;
   this.sliceMesh.position.x = 0;
+  this.sliceAxis = 0; // 0=X, 1=Y, 2=Z
   this.sliceMesh.visible = false;
   this.scene.add(this.sliceMesh);
 };
@@ -1934,8 +1940,25 @@ WindTunnelApp.prototype.initUI = function () {
     var pos = parseFloat(e.target.value);
     $('val-slice').textContent = pos.toFixed(2);
     if (self.sliceMesh) {
-      self.sliceMesh.position.x = (pos - 0.5) * self.SIM_SIZE;
       self.sliceMesh.material.uniforms.uSlicePos.value = pos;
+      var S = self.SIM_SIZE;
+      if (self.sliceAxis === 0) { self.sliceMesh.position.x = (pos - 0.5) * S; self.sliceMesh.position.y = 0; self.sliceMesh.position.z = 0; self.sliceMesh.rotation.set(0, Math.PI/2, 0); }
+      else if (self.sliceAxis === 1) { self.sliceMesh.position.y = (pos - 0.5) * S; self.sliceMesh.position.x = 0; self.sliceMesh.position.z = 0; self.sliceMesh.rotation.set(Math.PI/2, 0, 0); }
+      else { self.sliceMesh.position.z = (pos - 0.5) * S; self.sliceMesh.position.x = 0; self.sliceMesh.position.y = 0; self.sliceMesh.rotation.set(0, 0, 0); }
+    }
+  });
+
+  // Slice axis selection
+  $('ctrl-slice-axis').addEventListener('change', function (e) {
+    self.sliceAxis = parseInt(e.target.value);
+    if (self.sliceMesh) {
+      self.sliceMesh.material.uniforms.uSliceAxis.value = self.sliceAxis;
+      // Reposition slice on new axis
+      var pos = parseFloat($('ctrl-slice').value);
+      var S = self.SIM_SIZE;
+      if (self.sliceAxis === 0) { self.sliceMesh.position.set((pos-0.5)*S, 0, 0); self.sliceMesh.rotation.set(0, Math.PI/2, 0); }
+      else if (self.sliceAxis === 1) { self.sliceMesh.position.set(0, (pos-0.5)*S, 0); self.sliceMesh.rotation.set(Math.PI/2, 0, 0); }
+      else { self.sliceMesh.position.set(0, 0, (pos-0.5)*S); self.sliceMesh.rotation.set(0, 0, 0); }
     }
   });
 
@@ -2111,7 +2134,12 @@ WindTunnelApp.prototype.animate = function () {
   document.getElementById('re-counter').textContent = 'Re: ' + re;
 
   if (this.particleSystem && this.particleSystem.visible && this.velFieldData) {
-    this.updateParticles();
+    // Reduce particle update frequency when slice is also visible to avoid lag
+    if (this.sliceMesh && this.sliceMesh.visible) {
+      this.frameCount % 2 === 0 && this.updateParticles();
+    } else {
+      this.updateParticles();
+    }
   }
 
   this.renderer.render(this.scene, this.camera);
