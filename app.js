@@ -40,6 +40,7 @@ var CONTOUR = [
 
 // ---- GPU Performance Profiler ----
 function profileGPU() {
+  try {
   var canvas = document.createElement('canvas');
   canvas.width = 128;
   canvas.height = 128;
@@ -59,18 +60,35 @@ function profileGPU() {
 
   // Quick GPU benchmark: draw 800K points and measure
   var vs = 'attribute vec3 aPos; attribute float aVal; varying float vVal; void main(){ vVal=aVal; gl_Position=vec4(aPos,1); gl_PointSize=1.0; }';
-  var fs = 'varying float vVal; void main(){ gl_FragColor=vec4(vVal,vVal,vVal,1); }';
+  var fs = 'precision mediump float; varying float vVal; void main(){ gl_FragColor=vec4(vVal,vVal,vVal,1); }';
   var prog = gl.createProgram();
   function mkShader(type, src) {
     var s = gl.createShader(type);
     gl.shaderSource(s, src);
     gl.compileShader(s);
+    if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) {
+      console.warn('[GPU Profile] Shader compile failed:', gl.getShaderInfoLog(s));
+      gl.deleteShader(s);
+      return null;
+    }
     gl.attachShader(prog, s);
     return s;
   }
   var vsh = mkShader(gl.VERTEX_SHADER, vs);
   var fsh = mkShader(gl.FRAGMENT_SHADER, fs);
+  if (!vsh || !fsh) {
+    // Cleanup and return fallback
+    if (vsh) gl.deleteShader(vsh);
+    if (fsh) gl.deleteShader(fsh);
+    gl.deleteProgram(prog);
+    return { score: 30, gpu: gpuRenderer, vendor: gpuVendor, cores: cores, memory: memory, maxTexSize: maxTexSize };
+  }
   gl.linkProgram(prog);
+  if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) {
+    console.warn('[GPU Profile] Program link failed:', gl.getProgramInfoLog(prog));
+    gl.deleteShader(vsh); gl.deleteShader(fsh); gl.deleteProgram(prog);
+    return { score: 30, gpu: gpuRenderer, vendor: gpuVendor, cores: cores, memory: memory, maxTexSize: maxTexSize };
+  }
   gl.useProgram(prog);
 
   var N = 800000;
@@ -141,6 +159,10 @@ function profileGPU() {
     memory: memory,
     maxTexSize: maxTexSize
   };
+  } catch (e) {
+    console.warn('[GPU Profile] Error:', e.message);
+    return { score: 30, gpu: 'unknown', vendor: 'unknown', cores: navigator.hardwareConcurrency || 4, memory: navigator.deviceMemory || 4, maxTexSize: 256 };
+  }
 }
 
 // ---- Quality presets ----
@@ -930,7 +952,7 @@ WindTunnelApp.prototype.showModelMesh = function (mesh) {
   }
 
   var S = this.SIM_SIZE;
-  var v = mesh.vertices, faces = mesh.faces;
+  var v = mesh.vertices, faces = mesh.faces, n = mesh.normals;
 
   // Compute bounds and scale (same as voxelization)
   var minX=Infinity,maxX=-Infinity,minY=Infinity,maxY=-Infinity,minZ=Infinity,maxZ=-Infinity;
@@ -948,6 +970,7 @@ WindTunnelApp.prototype.showModelMesh = function (mesh) {
   var geo = new THREE.BufferGeometry();
   var positions = new Float32Array(faces.length * 3);
   var normals = new Float32Array(faces.length * 3);
+  var hasVertexNormals = n && n.length >= v.length;
 
   for (var i = 0; i < faces.length; i += 3) {
     var i0=faces[i]*3, i1=faces[i+1]*3, i2=faces[i+2]*3;
@@ -962,15 +985,21 @@ WindTunnelApp.prototype.showModelMesh = function (mesh) {
     positions[i*9+3]=bx-S/2;   positions[i*9+4]=by-S/2;   positions[i*9+5]=bz-S/2;
     positions[i*9+6]=ccx-S/2;  positions[i*9+7]=ccy-S/2;  positions[i*9+8]=ccz-S/2;
 
-    // Compute face normal
-    var e1x=bx-ax,e1y=by-ay,e1z=bz-az;
-    var e2x=ccx-ax,e2y=ccy-ay,e2z=ccz-az;
-    var nx=e1y*e2z-e1z*e2y, ny=e1z*e2x-e1x*e2z, nz=e1x*e2y-e1y*e2x;
-    var len=Math.sqrt(nx*nx+ny*ny+nz*nz)||1;
-    nx/=len; ny/=len; nz/=len;
-    normals[i*9+0]=nx; normals[i*9+1]=ny; normals[i*9+2]=nz;
-    normals[i*9+3]=nx; normals[i*9+4]=ny; normals[i*9+5]=nz;
-    normals[i*9+6]=nx; normals[i*9+7]=ny; normals[i*9+8]=nz;
+    // Use vertex normals from model if available, otherwise compute face normal
+    if (hasVertexNormals) {
+      normals[i*9+0]=n[i0];   normals[i*9+1]=n[i0+1];   normals[i*9+2]=n[i0+2];
+      normals[i*9+3]=n[i1];   normals[i*9+4]=n[i1+1];   normals[i*9+5]=n[i1+2];
+      normals[i*9+6]=n[i2];   normals[i*9+7]=n[i2+1];   normals[i*9+8]=n[i2+2];
+    } else {
+      var e1x=bx-ax,e1y=by-ay,e1z=bz-az;
+      var e2x=ccx-ax,e2y=ccy-ay,e2z=ccz-az;
+      var nx=e1y*e2z-e1z*e2y, ny=e1z*e2x-e1x*e2z, nz=e1x*e2y-e1y*e2x;
+      var len=Math.sqrt(nx*nx+ny*ny+nz*nz)||1;
+      nx/=len; ny/=len; nz/=len;
+      normals[i*9+0]=nx; normals[i*9+1]=ny; normals[i*9+2]=nz;
+      normals[i*9+3]=nx; normals[i*9+4]=ny; normals[i*9+5]=nz;
+      normals[i*9+6]=nx; normals[i*9+7]=ny; normals[i*9+8]=nz;
+    }
   }
 
   geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
@@ -1014,85 +1043,145 @@ WindTunnelApp.prototype.createSphere = function () {
 WindTunnelApp.prototype.createCar = function () {
   var verts = [], faces = [], norms = [];
 
-  function addTaper(cx,cy,cz,sx1,sy1,sz1,sx2,sy2,sz2) {
-    var v=verts.length/3;
-    var x0=cx-sx1/2,x1=cx+sx1/2,x2=cx-sx2/2,x3=cx+sx2/2;
-    var y0=cy-sy1/2,y1=cy+sy1/2,y2=cy-sy2/2,y3=cy+sy2/2;
-    var z0=cz-sz1/2,z1=cz+sz1/2,z2=cz-sz2/2,z3=cz+sz2/2;
-    verts.push(x0,y0,z0, x1,y0,z0, x1,y1,z0, x0,y1,z0,
-               x2,y2,z2, x3,y2,z2, x3,y3,z2, x2,y3,z2);
-    var bf=[[v,v+1,v+2,v,v+2,v+3],[v+4,v+6,v+5,v+4,v+7,v+6],
-            [v,v+3,v+7,v,v+7,v+4],[v+1,v+5,v+6,v+1,v+6,v+2],
-            [v+3,v+2,v+6,v+3,v+6,v+7],[v,v+4,v+5,v,v+5,v+1]];
-    for (var fi=0;fi<6;fi++) faces.push(bf[fi][0],bf[fi][1],bf[fi][2],bf[fi][3],bf[fi][4],bf[fi][5]);
-    for (var fi=0;fi<6;fi++) {
-      var i0=bf[fi][0]*3,i1=bf[fi][1]*3,i2=bf[fi][2]*3;
-      var e1x=verts[i1]-verts[i0],e1y=verts[i1+1]-verts[i0+1],e1z=verts[i1+2]-verts[i0+2];
-      var e2x=verts[i2]-verts[i0],e2y=verts[i2+1]-verts[i0+1],e2z=verts[i2+2]-verts[i0+2];
-      var nx=e1y*e2z-e1z*e2y,ny=e1z*e2x-e1x*e2z,nz=e1x*e2y-e1y*e2x;
-      var len=Math.sqrt(nx*nx+ny*ny+nz*nz)||1;
-      for (var ni=0;ni<6;ni++) norms.push(nx/len,ny/len,nz/len);
+  // Generate smooth revolution surface
+  function addRevSurface(profile, nSlices, cx, cy, cz, scaleX, scaleY, scaleZ) {
+    var nP = profile.length / 2;
+    var baseV = verts.length / 3;
+    for (var s = 0; s <= nSlices; s++) {
+      var angle = s * 2 * Math.PI / nSlices;
+      var cosA = Math.cos(angle), sinA = Math.sin(angle);
+      for (var p = 0; p < nP; p++) {
+        var px = profile[p * 2];
+        var py = profile[p * 2 + 1];
+        // Revolution around Y axis
+        var wx = cx + px * scaleX * cosA;
+        var wy = cy + py * scaleY;
+        var wz = cz + px * scaleZ * sinA;
+        verts.push(wx, wy, wz);
+        // Smooth normal
+        var nx = py * cosA, ny = px, nz = py * sinA;
+        var len = Math.sqrt(nx*nx+ny*ny+nz*nz) || 1;
+        norms.push(nx/len, ny/len, nz/len);
+      }
+    }
+    for (var s = 0; s < nSlices; s++) {
+      for (var p = 0; p < nP - 1; p++) {
+        var a = baseV + s * nP + p;
+        var b = a + nP;
+        var c = a + 1;
+        var d = b + 1;
+        faces.push(a, b, c, c, b, d);
+      }
     }
   }
-  function addBox(cx,cy,cz,sx,sy,sz) { addTaper(cx,cy,cz,sx,sy,sz,sx,sy,sz); }
 
-  // Body lower (tapered sides)
-  addTaper(0,-0.02,0, 0.52,0.10,0.18, 0.50,0.10,0.16);
-  // Body upper cabin (tapered roof)
-  addTaper(0.02,0.06,0, 0.24,0.09,0.16, 0.26,0.08,0.15);
-  // Windshield (angled)
-  addTaper(-0.10,0.06,0, 0.08,0.08,0.155, 0.12,0.09,0.155);
-  // Rear window (angled)
-  addTaper(0.14,0.05,0, 0.06,0.07,0.15, 0.10,0.06,0.15);
-  // Hood (sloped front)
-  addTaper(-0.18,0.01,0, 0.12,0.06,0.17, 0.14,0.07,0.18);
-  // Trunk (sloped rear)
-  addTaper(0.20,0.01,0, 0.08,0.05,0.17, 0.10,0.06,0.17);
-  // Front bumper (rounded)
-  addTaper(-0.28,-0.01,0, 0.04,0.08,0.19, 0.06,0.07,0.18);
-  // Rear bumper
-  addTaper(0.27,-0.01,0, 0.04,0.08,0.19, 0.06,0.07,0.18);
-  // Front fenders (flared)
-  addTaper(-0.16,-0.01,0.10, 0.10,0.06,0.04, 0.08,0.08,0.05);
-  addTaper(-0.16,-0.01,-0.10, 0.10,0.06,0.04, 0.08,0.08,0.05);
-  // Rear fenders (flared)
-  addTaper(0.16,-0.01,0.10, 0.10,0.06,0.04, 0.08,0.08,0.05);
-  addTaper(0.16,-0.01,-0.10, 0.10,0.06,0.04, 0.08,0.08,0.05);
-  // Side skirts
-  addTaper(0,-0.03,-0.10, 0.40,0.04,0.02, 0.38,0.035,0.018);
-  addTaper(0,-0.03, 0.10, 0.40,0.04,0.02, 0.38,0.035,0.018);
-  // Wheels (octagonal approximation)
-  var wheelY = -0.06;
-  var wheelSegs = 8;
-  function addWheel(cx, cy, cz, r, w) {
-    var baseV = verts.length / 3;
-    for (var s = 0; s <= wheelSegs; s++) {
-      var angle = s * 2 * Math.PI / wheelSegs;
-      var dx = Math.cos(angle) * r, dy = Math.sin(angle) * r;
-      verts.push(cx - w/2, cy + dy, cz + dx);
-      verts.push(cx + w/2, cy + dy, cz + dx);
-      norms.push(-1, 0, 0);
-      norms.push(1, 0, 0);
+  // Car body profile (cross-section in XY plane)
+  // Points: [x (along length), y (height)]
+  var bodyProfile = [
+    [-0.28, -0.03],  // front bottom
+    [-0.30, 0.00],   // front bumper lower
+    [-0.32, 0.03],   // front bumper
+    [-0.30, 0.06],   // hood front
+    [-0.20, 0.07],   // hood
+    [-0.12, 0.08],   // hood rear
+    [-0.08, 0.12],   // windshield bottom
+    [-0.02, 0.17],   // windshield top
+    [0.02, 0.18],    // roof front
+    [0.08, 0.18],    // roof
+    [0.14, 0.17],    // roof rear
+    [0.18, 0.14],    // rear window top
+    [0.22, 0.10],    // rear window bottom
+    [0.24, 0.08],    // trunk
+    [0.28, 0.06],    // trunk rear
+    [0.30, 0.04],    // rear bumper top
+    [0.30, 0.01],    // rear bumper
+    [0.28, -0.02],   // rear bottom
+    [0.24, -0.04],   // rear underbody
+    [0.00, -0.05],   // underbody
+    [-0.24, -0.04],  // front underbody
+  ];
+
+  // Car width profile (half-width at each height level)
+  var widthProfile = [
+    0.16,  // bottom
+    0.17,  // lower body
+    0.18,  // body
+    0.18,  // body
+    0.18,  // body
+    0.18,  // body
+    0.17,  // windshield base
+    0.15,  // windshield
+    0.14,  // roof
+    0.14,  // roof
+    0.14,  // roof
+    0.14,  // rear window
+    0.15,  // rear window
+    0.16,  // trunk
+    0.17,  // trunk
+    0.17,  // rear
+    0.16,  // rear bumper
+    0.16,  // rear bottom
+    0.15,  // underbody
+    0.16,  // underbody
+    0.16,  // front underbody
+  ];
+
+  // Generate body mesh
+  var nSlices = 24;
+  var baseV = verts.length / 3;
+  for (var s = 0; s <= nSlices; s++) {
+    var angle = s * 2 * Math.PI / nSlices;
+    var cosA = Math.cos(angle), sinA = Math.sin(angle);
+    for (var p = 0; p < bodyProfile.length; p++) {
+      var px = bodyProfile[p][0];
+      var py = bodyProfile[p][1];
+      var halfW = widthProfile[p];
+      var wx = px;
+      var wy = py;
+      var wz = halfW * sinA;
+      verts.push(wx, wy, wz);
+      // Normal: approximate surface normal
+      var nx = 0, ny = cosA, nz = sinA;
+      if (p === 0 || p === bodyProfile.length - 1) { ny = -1; nz = 0; }
+      var len = Math.sqrt(nx*nx+ny*ny+nz*nz) || 1;
+      norms.push(nx/len, ny/len, nz/len);
     }
-    for (var s = 0; s < wheelSegs; s++) {
-      var a = baseV + s * 2, b = a + 1, c = a + 2, d = a + 3;
+  }
+  var nP = bodyProfile.length;
+  for (var s = 0; s < nSlices; s++) {
+    for (var p = 0; p < nP - 1; p++) {
+      var a = baseV + s * nP + p;
+      var b = a + nP;
+      var c = a + 1;
+      var d = b + 1;
+      faces.push(a, b, c, c, b, d);
+    }
+  }
+
+  // Wheels (smooth octagonal)
+  function addWheel(cx, cy, cz, r, w, segs) {
+    var baseV2 = verts.length / 3;
+    for (var s = 0; s <= segs; s++) {
+      var angle = s * 2 * Math.PI / segs;
+      var dx = Math.cos(angle) * r, dy = Math.sin(angle) * r;
+      verts.push(cx - w/2, cy + dy, cz + dx); norms.push(-1, 0, 0);
+      verts.push(cx + w/2, cy + dy, cz + dx); norms.push(1, 0, 0);
+    }
+    for (var s = 0; s < segs; s++) {
+      var a = baseV2 + s * 2, b = a + 1, c = a + 2, d = a + 3;
       faces.push(a, c, b, b, c, d);
     }
-    // Side caps
-    var centerL = verts.length / 3;
-    verts.push(cx - w/2, cy, cz); norms.push(-1, 0, 0);
-    var centerR = verts.length / 3;
-    verts.push(cx + w/2, cy, cz); norms.push(1, 0, 0);
-    for (var s = 0; s < wheelSegs; s++) {
-      var a = baseV + s * 2, b = baseV + ((s + 1) % (wheelSegs + 1)) * 2;
-      faces.push(centerL, b, a);
-      faces.push(centerR, a + 1, b + 1);
+    var centerL = verts.length / 3; verts.push(cx - w/2, cy, cz); norms.push(-1, 0, 0);
+    var centerR = verts.length / 3; verts.push(cx + w/2, cy, cz); norms.push(1, 0, 0);
+    for (var s = 0; s < segs; s++) {
+      var a = baseV2 + s * 2, b = baseV2 + ((s + 1) % (segs + 1)) * 2;
+      faces.push(centerL, b, a); faces.push(centerR, a + 1, b + 1);
     }
   }
-  addWheel(-0.14, wheelY, -0.10, 0.035, 0.04);
-  addWheel(-0.14, wheelY, 0.10, 0.035, 0.04);
-  addWheel(0.14, wheelY, -0.10, 0.035, 0.04);
-  addWheel(0.14, wheelY, 0.10, 0.035, 0.04);
+  addWheel(-0.16, -0.04, 0.18, 0.035, 0.04, 12);
+  addWheel(-0.16, -0.04, -0.18, 0.035, 0.04, 12);
+  addWheel(0.16, -0.04, 0.18, 0.035, 0.04, 12);
+  addWheel(0.16, -0.04, -0.18, 0.035, 0.04, 12);
 
   return { vertices: verts, faces: faces, normals: norms };
 };
@@ -1200,109 +1289,183 @@ WindTunnelApp.prototype.createCylinder = function () {
 WindTunnelApp.prototype.createF1Car = function () {
   var verts = [], faces = [], norms = [];
 
-  function addTaper(cx,cy,cz,sx1,sy1,sz1,sx2,sy2,sz2) {
-    var v=verts.length/3;
-    var x0=cx-sx1/2,x1=cx+sx1/2,x2=cx-sx2/2,x3=cx+sx2/2;
-    var y0=cy-sy1/2,y1=cy+sy1/2,y2=cy-sy2/2,y3=cy+sy2/2;
-    var z0=cz-sz1/2,z1=cz+sz1/2,z2=cz-sz2/2,z3=cz+sz2/2;
-    verts.push(x0,y0,z0, x1,y0,z0, x1,y1,z0, x0,y1,z0,
-               x2,y2,z2, x3,y2,z2, x3,y3,z2, x2,y3,z2);
-    var bf=[[v,v+1,v+2,v,v+2,v+3],[v+4,v+6,v+5,v+4,v+7,v+6],
-            [v,v+3,v+7,v,v+7,v+4],[v+1,v+5,v+6,v+1,v+6,v+2],
-            [v+3,v+2,v+6,v+3,v+6,v+7],[v,v+4,v+5,v,v+5,v+1]];
-    for (var fi=0;fi<6;fi++) faces.push(bf[fi][0],bf[fi][1],bf[fi][2],bf[fi][3],bf[fi][4],bf[fi][5]);
-    for (var fi=0;fi<6;fi++) {
-      var i0=bf[fi][0]*3,i1=bf[fi][1]*3,i2=bf[fi][2]*3;
-      var e1x=verts[i1]-verts[i0],e1y=verts[i1+1]-verts[i0+1],e1z=verts[i1+2]-verts[i0+2];
-      var e2x=verts[i2]-verts[i0],e2y=verts[i2+1]-verts[i0+1],e2z=verts[i2+2]-verts[i0+2];
-      var nx=e1y*e2z-e1z*e2y,ny=e1z*e2x-e1x*e2z,nz=e1x*e2y-e1y*e2x;
-      var len=Math.sqrt(nx*nx+ny*ny+nz*nz)||1;
-      for (var ni=0;ni<6;ni++) norms.push(nx/len,ny/len,nz/len);
+  // Smooth body surface using profile + revolution
+  function addSmoothBody(profileX, profileY, profileW, nSlices) {
+    var nP = profileX.length;
+    var baseV = verts.length / 3;
+    for (var s = 0; s <= nSlices; s++) {
+      var angle = s * 2 * Math.PI / nSlices;
+      var cosA = Math.cos(angle), sinA = Math.sin(angle);
+      for (var p = 0; p < nP; p++) {
+        var px = profileX[p];
+        var py = profileY[p];
+        var hw = profileW[p];
+        var wy = py + hw * 0.3 * Math.max(0, cosA);
+        var wz = hw * sinA;
+        verts.push(px, wy, wz);
+        var nx = 0, ny = cosA, nz = sinA;
+        var len = Math.sqrt(nx*nx+ny*ny+nz*nz) || 1;
+        norms.push(nx/len, ny/len, nz/len);
+      }
+    }
+    for (var s = 0; s < nSlices; s++) {
+      for (var p = 0; p < nP - 1; p++) {
+        var a = baseV + s * nP + p;
+        var b = a + nP;
+        var c = a + 1;
+        var d = b + 1;
+        faces.push(a, b, c, c, b, d);
+      }
     }
   }
-  function addBox(cx,cy,cz,sx,sy,sz) { addTaper(cx,cy,cz,sx,sy,sz,sx,sy,sz); }
-  function addWheel(cx, cy, cz, r, w) {
-    var wheelSegs = 8, baseV = verts.length / 3;
-    for (var s = 0; s <= wheelSegs; s++) {
-      var angle = s * 2 * Math.PI / wheelSegs;
-      var dx = Math.cos(angle) * r, dy = Math.sin(angle) * r;
-      verts.push(cx - w/2, cy + dy, cz + dx); verts.push(cx + w/2, cy + dy, cz + dx);
-      norms.push(-1, 0, 0); norms.push(1, 0, 0);
+
+  // F1 body profile
+  var bodyX = [-0.42, -0.38, -0.34, -0.28, -0.22, -0.16, -0.10, -0.04, 0.02, 0.08, 0.14, 0.20, 0.26, 0.30, 0.34, 0.36];
+  var bodyY = [-0.02, -0.02, -0.02, -0.02, -0.02, -0.01, 0.0, 0.01, 0.01, 0.01, 0.01, 0.01, 0.0, -0.01, -0.02, -0.02];
+  var bodyW = [0.03, 0.05, 0.06, 0.07, 0.08, 0.085, 0.09, 0.09, 0.09, 0.085, 0.08, 0.07, 0.06, 0.05, 0.04, 0.02];
+  addSmoothBody(bodyX, bodyY, bodyW, 16);
+
+  // Nose cone (smooth taper)
+  var noseX = [-0.50, -0.48, -0.46, -0.44, -0.42];
+  var noseY = [-0.03, -0.025, -0.02, -0.02, -0.02];
+  var noseW = [0.015, 0.025, 0.035, 0.04, 0.045];
+  addSmoothBody(noseX, noseY, noseW, 12);
+
+  // Cockpit (open top)
+  var cockpitX = [-0.12, -0.08, -0.04, 0.0, 0.04];
+  var cockpitY = [0.02, 0.03, 0.035, 0.035, 0.03];
+  var cockpitW = [0.04, 0.045, 0.05, 0.05, 0.045];
+  var cockpitBaseV = verts.length / 3;
+  for (var p = 0; p < cockpitX.length; p++) {
+    verts.push(cockpitX[p], cockpitY[p], -cockpitW[p]); norms.push(0, 0.7, -0.7);
+    verts.push(cockpitX[p], cockpitY[p], cockpitW[p]); norms.push(0, 0.7, 0.7);
+    verts.push(cockpitX[p], cockpitY[p] + 0.04, 0); norms.push(0, 1, 0);
+  }
+  for (var p = 0; p < cockpitX.length - 1; p++) {
+    var a = cockpitBaseV + p * 3, b = a + 3;
+    faces.push(a, b, a+1, a+1, b, b+1);
+    faces.push(a+1, b+1, a+2, a+2, b+1, b+2);
+  }
+
+  // Headrest
+  var headrestX = [0.04, 0.08, 0.12, 0.14];
+  var headrestY = [0.03, 0.04, 0.04, 0.03];
+  var headrestW = [0.035, 0.03, 0.025, 0.02];
+  addSmoothBody(headrestX, headrestY, headrestW, 10);
+
+  // Engine cover (smooth taper)
+  var engineX = [0.14, 0.18, 0.22, 0.26, 0.30, 0.34];
+  var engineY = [0.01, 0.02, 0.025, 0.02, 0.015, 0.01];
+  var engineW = [0.06, 0.055, 0.05, 0.045, 0.04, 0.03];
+  addSmoothBody(engineX, engineY, engineW, 12);
+
+  // Airbox (above driver)
+  var airboxX = [-0.04, -0.02, 0.0, 0.02, 0.04];
+  var airboxY = [0.06, 0.07, 0.075, 0.07, 0.06];
+  var airboxW = [0.02, 0.025, 0.03, 0.025, 0.02];
+  addSmoothBody(airboxX, airboxY, airboxW, 8);
+
+  // Front wing (multi-element, curved)
+  function addWing(x, y, z, chord, thick, span, sweep) {
+    var nSpan = 6;
+    var baseVW = verts.length / 3;
+    for (var sp = 0; sp <= nSpan; sp++) {
+      var t = sp / nSpan;
+      var zPos = z + (t - 0.5) * span;
+      var xOffset = t * span * sweep;
+      var chordScale = 1 - t * 0.3;
+      verts.push(x + xOffset - chord*chordScale/2, y, zPos); norms.push(0, -1, 0);
+      verts.push(x + xOffset + chord*chordScale/2, y, zPos); norms.push(0, -1, 0);
+      verts.push(x + xOffset - chord*chordScale/2, y + thick, zPos); norms.push(0, 1, 0);
+      verts.push(x + xOffset + chord*chordScale/2, y + thick, zPos); norms.push(0, 1, 0);
     }
-    for (var s = 0; s < wheelSegs; s++) { var a = baseV + s*2, b = a+1, c = a+2, d = a+3; faces.push(a, c, b, b, c, d); }
+    for (var sp = 0; sp < nSpan; sp++) {
+      var a = baseVW + sp * 4, b = a + 4;
+      faces.push(a, b, a+1, a+1, b, b+1); // bottom
+      faces.push(a+2, a+3, b+2, a+3, b+3, b+2); // top
+      faces.push(a, a+2, b, a+2, b+2, b); // leading edge
+      faces.push(a+1, b+1, a+3, a+3, b+1, b+3); // trailing edge
+    }
+  }
+  addWing(-0.44, -0.04, 0, 0.06, 0.008, 0.44, 0.02);
+  addWing(-0.42, -0.05, 0, 0.05, 0.006, 0.40, 0.015);
+  addWing(-0.40, -0.055, 0, 0.04, 0.005, 0.36, 0.01);
+
+  // Rear wing (tall, multi-element)
+  addWing(0.34, 0.06, 0, 0.04, 0.008, 0.32, -0.01);
+  addWing(0.33, 0.08, 0, 0.035, 0.007, 0.28, -0.008);
+  addWing(0.32, 0.10, 0, 0.03, 0.006, 0.24, -0.006);
+
+  // Endplates
+  function addEndplate(x, y, z, h, w) {
+    var baseVE = verts.length / 3;
+    verts.push(x - w/2, y, z); norms.push(0, 0, -1);
+    verts.push(x + w/2, y, z); norms.push(0, 0, -1);
+    verts.push(x - w/2, y + h, z); norms.push(0, 0, -1);
+    verts.push(x + w/2, y + h, z); norms.push(0, 0, -1);
+    faces.push(baseVE, baseVE+1, baseVE+2, baseVE+2, baseVE+1, baseVE+3);
+  }
+  addEndplate(-0.44, -0.04, 0.22, 0.04, 0.008);
+  addEndplate(-0.44, -0.04, -0.22, 0.04, 0.008);
+  addEndplate(0.34, 0.06, 0.16, 0.10, 0.008);
+  addEndplate(0.34, 0.06, -0.16, 0.10, 0.008);
+
+  // Rear wing pillar
+  verts.push(0.34, 0.01, -0.005); norms.push(0, 0, -1);
+  verts.push(0.34, 0.01, 0.005); norms.push(0, 0, 1);
+  verts.push(0.34, 0.06, -0.005); norms.push(0, 0, -1);
+  verts.push(0.34, 0.06, 0.005); norms.push(0, 0, 1);
+  var pv = verts.length / 3 - 4;
+  faces.push(pv, pv+1, pv+2, pv+2, pv+1, pv+3);
+
+  // Wheels (smooth)
+  function addWheel(cx, cy, cz, r, w, segs) {
+    var baseV2 = verts.length / 3;
+    for (var s = 0; s <= segs; s++) {
+      var angle = s * 2 * Math.PI / segs;
+      var dx = Math.cos(angle) * r, dy = Math.sin(angle) * r;
+      verts.push(cx - w/2, cy + dy, cz + dx); norms.push(-1, 0, 0);
+      verts.push(cx + w/2, cy + dy, cz + dx); norms.push(1, 0, 0);
+    }
+    for (var s = 0; s < segs; s++) {
+      var a = baseV2 + s * 2, b = a + 1, c = a + 2, d = a + 3;
+      faces.push(a, c, b, b, c, d);
+    }
     var centerL = verts.length / 3; verts.push(cx - w/2, cy, cz); norms.push(-1, 0, 0);
     var centerR = verts.length / 3; verts.push(cx + w/2, cy, cz); norms.push(1, 0, 0);
-    for (var s = 0; s < wheelSegs; s++) {
-      var a = baseV + s * 2, b = baseV + ((s + 1) % (wheelSegs + 1)) * 2;
+    for (var s = 0; s < segs; s++) {
+      var a = baseV2 + s * 2, b = baseV2 + ((s + 1) % (segs + 1)) * 2;
       faces.push(centerL, b, a); faces.push(centerR, a + 1, b + 1);
     }
   }
+  addWheel(-0.24, -0.05, 0.14, 0.04, 0.06, 12);
+  addWheel(-0.24, -0.05, -0.14, 0.04, 0.06, 12);
+  addWheel(0.26, -0.05, 0.15, 0.05, 0.08, 12);
+  addWheel(0.26, -0.05, -0.15, 0.05, 0.08, 12);
 
-  // Monocoque (tapered chassis)
-  addTaper(-0.10, 0, 0, 0.22, 0.07, 0.10, 0.30, 0.08, 0.12);
-  addTaper( 0.14, 0, 0, 0.30, 0.08, 0.12, 0.20, 0.07, 0.10);
-
-  // Nose (pointed, multi-segment)
-  addTaper(-0.30, -0.01, 0, 0.12, 0.05, 0.08, 0.16, 0.065, 0.09);
-  addTaper(-0.38, -0.01, 0, 0.06, 0.04, 0.06, 0.12, 0.05, 0.08);
-  addTaper(-0.42, -0.01, 0, 0.03, 0.03, 0.04, 0.06, 0.04, 0.06);
-
-  // Cockpit
-  addBox(0.0, 0.055, 0, 0.15, 0.05, 0.10);
-  // Headrest
-  addTaper(0.06, 0.06, 0, 0.06, 0.04, 0.08, 0.04, 0.02, 0.06);
-
-  // Engine cover (slim, tapered)
-  addTaper(0.18, 0.04, 0, 0.10, 0.06, 0.09, 0.20, 0.05, 0.08);
-  addTaper(0.28, 0.02, 0, 0.08, 0.04, 0.07, 0.06, 0.03, 0.05);
-
-  // Airbox (above driver)
-  addTaper(-0.02, 0.08, 0, 0.03, 0.04, 0.03, 0.05, 0.06, 0.04);
-
-  // Front wing (multi-element, wide)
-  addBox(-0.42, -0.04, 0, 0.04, 0.010, 0.42);
-  addBox(-0.40, -0.05, 0, 0.03, 0.008, 0.38);
-  addBox(-0.38, -0.055, 0, 0.025, 0.006, 0.34);
-  // Front wing endplates
-  addTaper(-0.42, -0.03, 0.22, 0.06, 0.04, 0.01, 0.04, 0.03, 0.008);
-  addTaper(-0.42, -0.03, -0.22, 0.06, 0.04, 0.01, 0.04, 0.03, 0.008);
-
-  // Rear wing (tall, multi-element)
-  addBox(0.34, 0.09, 0, 0.025, 0.06, 0.30);
-  addBox(0.33, 0.07, 0, 0.020, 0.05, 0.26);
-  addBox(0.32, 0.05, 0, 0.018, 0.04, 0.22);
-  // Rear wing endplates
-  addTaper(0.34, 0.06, 0.16, 0.04, 0.10, 0.01, 0.03, 0.08, 0.008);
-  addTaper(0.34, 0.06, -0.16, 0.04, 0.10, 0.01, 0.03, 0.08, 0.008);
-  // Rear wing pillar
-  addBox(0.34, 0.02, 0, 0.015, 0.05, 0.015);
-
-  // Front wheels (rounded)
-  addWheel(-0.24, -0.06, 0.13, 0.04, 0.06);
-  addWheel(-0.24, -0.06, -0.13, 0.04, 0.06);
-  // Rear wheels (wider)
-  addWheel(0.26, -0.06, 0.14, 0.05, 0.08);
-  addWheel(0.26, -0.06, -0.14, 0.05, 0.08);
-
-  // Sidepods (sculpted)
-  addTaper(0.06, -0.02, 0.10, 0.08, 0.05, 0.04, 0.20, 0.06, 0.06);
-  addTaper(0.06, -0.02, -0.10, 0.08, 0.05, 0.04, 0.20, 0.06, 0.06);
-  // Sidepod inlets
-  addTaper(-0.06, 0.01, 0.11, 0.03, 0.03, 0.02, 0.05, 0.05, 0.03);
-  addTaper(-0.06, 0.01, -0.11, 0.03, 0.03, 0.02, 0.05, 0.05, 0.03);
+  // Sidepods (smooth)
+  var spX = [-0.02, 0.02, 0.06, 0.10, 0.14, 0.18];
+  var spY = [-0.02, -0.025, -0.03, -0.03, -0.025, -0.02];
+  var spW = [0.05, 0.06, 0.065, 0.065, 0.06, 0.05];
+  addSmoothBody(spX, spY, spW, 10);
+  // Mirror for other side
+  var spX2 = spX.slice();
+  var spY2 = spY.slice();
+  var spW2 = spW.slice();
+  addSmoothBody(spX2, spY2, spW2, 10);
 
   // Floor/diffuser
-  addTaper(0.05, -0.05, 0, 0.20, 0.008, 0.16, 0.40, 0.010, 0.20);
-  // Diffuser strakes
-  addBox(0.25, -0.045, 0.05, 0.10, 0.02, 0.006);
-  addBox(0.25, -0.045, -0.05, 0.10, 0.02, 0.006);
-  addBox(0.25, -0.045, 0, 0.10, 0.02, 0.006);
-
-  // Brake ducts
-  addBox(-0.22, -0.04, 0.13, 0.03, 0.03, 0.02);
-  addBox(-0.22, -0.04, -0.13, 0.03, 0.03, 0.02);
-  addBox(0.24, -0.04, 0.14, 0.03, 0.03, 0.02);
-  addBox(0.24, -0.04, -0.14, 0.03, 0.03, 0.02);
+  var floorVerts = verts.length / 3;
+  var floorX = [-0.30, -0.20, -0.10, 0.0, 0.10, 0.20, 0.30, 0.36];
+  var floorW = [0.12, 0.14, 0.16, 0.17, 0.17, 0.16, 0.14, 0.10];
+  for (var p = 0; p < floorX.length; p++) {
+    verts.push(floorX[p], -0.05, -floorW[p]); norms.push(0, -1, 0);
+    verts.push(floorX[p], -0.05, floorW[p]); norms.push(0, -1, 0);
+  }
+  for (var p = 0; p < floorX.length - 1; p++) {
+    var a = floorVerts + p * 2, b = a + 2;
+    faces.push(a, b, a+1, a+1, b, b+1);
+  }
 
   return { vertices: verts, faces: faces, normals: norms };
 };
@@ -1311,68 +1474,120 @@ WindTunnelApp.prototype.createF1Car = function () {
 WindTunnelApp.prototype.createBridge = function () {
   var verts = [], faces = [], norms = [];
 
-  function addTaper(cx,cy,cz,sx1,sy1,sz1,sx2,sy2,sz2) {
-    var v=verts.length/3;
-    var x0=cx-sx1/2,x1=cx+sx1/2,x2=cx-sx2/2,x3=cx+sx2/2;
-    var y0=cy-sy1/2,y1=cy+sy1/2,y2=cy-sy2/2,y3=cy+sy2/2;
-    var z0=cz-sz1/2,z1=cz+sz1/2,z2=cz-sz2/2,z3=cz+sz2/2;
-    verts.push(x0,y0,z0, x1,y0,z0, x1,y1,z0, x0,y1,z0,
-               x2,y2,z2, x3,y2,z2, x3,y3,z2, x2,y3,z2);
-    var bf=[[v,v+1,v+2,v,v+2,v+3],[v+4,v+6,v+5,v+4,v+7,v+6],
-            [v,v+3,v+7,v,v+7,v+4],[v+1,v+5,v+6,v+1,v+6,v+2],
-            [v+3,v+2,v+6,v+3,v+6,v+7],[v,v+4,v+5,v,v+5,v+1]];
-    for (var fi=0;fi<6;fi++) faces.push(bf[fi][0],bf[fi][1],bf[fi][2],bf[fi][3],bf[fi][4],bf[fi][5]);
-    for (var fi=0;fi<6;fi++) {
-      var i0=bf[fi][0]*3,i1=bf[fi][1]*3,i2=bf[fi][2]*3;
-      var e1x=verts[i1]-verts[i0],e1y=verts[i1+1]-verts[i0+1],e1z=verts[i1+2]-verts[i0+2];
-      var e2x=verts[i2]-verts[i0],e2y=verts[i2+1]-verts[i0+1],e2z=verts[i2+2]-verts[i0+2];
-      var nx=e1y*e2z-e1z*e2y,ny=e1z*e2x-e1x*e2z,nz=e1x*e2y-e1y*e2x;
-      var len=Math.sqrt(nx*nx+ny*ny+nz*nz)||1;
-      for (var ni=0;ni<6;ni++) norms.push(nx/len,ny/len,nz/len);
+  // Bridge deck (smooth road surface)
+  var deckX = [-0.36, -0.30, -0.24, -0.18, -0.12, -0.06, 0.0, 0.06, 0.12, 0.18, 0.24, 0.30, 0.36];
+  var deckW = [0.10, 0.11, 0.115, 0.12, 0.12, 0.12, 0.12, 0.12, 0.12, 0.115, 0.11, 0.10, 0.09];
+  var deckBaseV = verts.length / 3;
+  for (var p = 0; p < deckX.length; p++) {
+    var x = deckX[p];
+    var hw = deckW[p];
+    verts.push(x, 0.0, -hw); norms.push(0, 1, 0);
+    verts.push(x, 0.0, hw); norms.push(0, 1, 0);
+    verts.push(x, -0.02, -hw * 0.9); norms.push(0, -1, 0);
+    verts.push(x, -0.02, hw * 0.9); norms.push(0, -1, 0);
+  }
+  for (var p = 0; p < deckX.length - 1; p++) {
+    var a = deckBaseV + p * 4, b = a + 4;
+    faces.push(a, b, a+1, a+1, b, b+1); // top surface
+    faces.push(a+2, a+3, b+2, a+3, b+3, b+2); // bottom surface
+    faces.push(a, a+2, b, a+2, b+2, b); // left edge
+    faces.push(a+1, b+1, a+3, a+3, b+1, b+3); // right edge
+  }
+
+  // Side rails (smooth curve on top)
+  var railX = [-0.36, -0.30, -0.24, -0.18, -0.12, -0.06, 0.0, 0.06, 0.12, 0.18, 0.24, 0.30, 0.36];
+  function addRail(zPos) {
+    var railBaseV = verts.length / 3;
+    var hw = 0.12;
+    for (var p = 0; p < railX.length; p++) {
+      var x = railX[p];
+      verts.push(x, 0.0, zPos - 0.006); norms.push(0, 0, -1);
+      verts.push(x, 0.0, zPos + 0.006); norms.push(0, 0, 1);
+      verts.push(x, 0.04, zPos - 0.006); norms.push(0, 0, -1);
+      verts.push(x, 0.04, zPos + 0.006); norms.push(0, 0, 1);
+    }
+    for (var p = 0; p < railX.length - 1; p++) {
+      var a = railBaseV + p * 4, b = a + 4;
+      faces.push(a, b, a+2, a+2, b, b+2); // front
+      faces.push(a+1, a+3, b+1, a+3, b+3, b+1); // back
+      faces.push(a+2, b+2, a+3, a+3, b+2, b+3); // top
     }
   }
-  function addBox(cx,cy,cz,sx,sy,sz) { addTaper(cx,cy,cz,sx,sy,sz,sx,sy,sz); }
+  addRail(0.12);
+  addRail(-0.12);
 
-  // Deck (road surface, tapered edges)
-  addTaper(0, 0, 0, 0.72, 0.03, 0.24, 0.72, 0.025, 0.22);
-  // Deck underside reinforcement
-  addBox(0, -0.02, 0, 0.70, 0.015, 0.20);
-
-  // Side rails (with tapered top)
-  addTaper(0, 0.035, 0.115, 0.72, 0.04, 0.012, 0.72, 0.05, 0.015);
-  addTaper(0, 0.035, -0.115, 0.72, 0.04, 0.012, 0.72, 0.05, 0.015);
-
-  // Main arch (curved, multi-segment)
-  addTaper(-0.18, 0.08, 0, 0.08, 0.06, 0.04, 0.12, 0.08, 0.04);
-  addTaper(-0.08, 0.13, 0, 0.12, 0.08, 0.04, 0.12, 0.06, 0.04);
-  addTaper( 0.02, 0.15, 0, 0.12, 0.06, 0.04, 0.12, 0.04, 0.04);
-  addTaper( 0.12, 0.13, 0, 0.12, 0.04, 0.04, 0.12, 0.08, 0.04);
-  addTaper( 0.22, 0.08, 0, 0.08, 0.08, 0.04, 0.08, 0.06, 0.04);
+  // Main arch (smooth parabolic curve)
+  var archN = 16;
+  var archSpan = 0.56;
+  var archHeight = 0.18;
+  var archWidth = 0.06;
+  for (var side = -1; side <= 1; side += 2) {
+    var archBaseV = verts.length / 3;
+    for (var i = 0; i <= archN; i++) {
+      var t = i / archN;
+      var x = -archSpan/2 + t * archSpan;
+      var y = archHeight * (1 - (2*t - 1) * (2*t - 1)); // Parabola
+      var z = side * archWidth / 2;
+      verts.push(x - 0.015, y, z - 0.015); norms.push(-1, 0, -1);
+      verts.push(x + 0.015, y, z - 0.015); norms.push(1, 0, -1);
+      verts.push(x - 0.015, y, z + 0.015); norms.push(-1, 0, 1);
+      verts.push(x + 0.015, y, z + 0.015); norms.push(1, 0, 1);
+    }
+    for (var i = 0; i < archN; i++) {
+      var a = archBaseV + i * 4, b = a + 4;
+      faces.push(a, b, a+1, a+1, b, b+1);
+      faces.push(a+2, a+3, b+2, a+3, b+3, b+2);
+      faces.push(a, a+2, b, a+2, b+2, b);
+      faces.push(a+1, b+1, a+3, a+3, b+1, b+3);
+    }
+  }
 
   // Arch supports (tapered pillars)
-  addTaper(-0.28, -0.08, 0, 0.035, 0.20, 0.05, 0.04, 0.14, 0.06);
-  addTaper( 0.02, -0.08, 0, 0.035, 0.20, 0.05, 0.04, 0.14, 0.06);
-  addTaper( 0.32, -0.08, 0, 0.035, 0.20, 0.05, 0.04, 0.14, 0.06);
+  function addPillar(x, z) {
+    var pillarBaseV = verts.length / 3;
+    var pillarH = 0.20;
+    var rBottom = 0.025;
+    var rTop = 0.018;
+    var nSegs = 8;
+    for (var s = 0; s <= nSegs; s++) {
+      var angle = s * 2 * Math.PI / nSegs;
+      var cosA = Math.cos(angle), sinA = Math.sin(angle);
+      verts.push(x + rBottom * cosA, -pillarH, z + rBottom * sinA);
+      norms.push(cosA, 0, sinA);
+      verts.push(x + rTop * cosA, 0.0, z + rTop * sinA);
+      norms.push(cosA, 0, sinA);
+    }
+    for (var s = 0; s < nSegs; s++) {
+      var a = pillarBaseV + s * 2, b = a + 2, c = a + 1, d = a + 3;
+      faces.push(a, b, c, c, b, d);
+    }
+  }
+  addPillar(-0.20, 0);
+  addPillar(0.0, 0);
+  addPillar(0.20, 0);
 
-  // Vertical suspender cables (from arch to deck)
-  addBox(-0.14, 0.06, 0.06, 0.008, 0.08, 0.008);
-  addBox(-0.14, 0.06, -0.06, 0.008, 0.08, 0.008);
-  addBox(0.02, 0.10, 0.06, 0.008, 0.12, 0.008);
-  addBox(0.02, 0.10, -0.06, 0.008, 0.12, 0.008);
-  addBox(0.18, 0.06, 0.06, 0.008, 0.08, 0.008);
-  addBox(0.18, 0.06, -0.06, 0.008, 0.08, 0.008);
-
-  // Cross bracing (X-pattern)
-  addBox(-0.14, 0.04, 0.08, 0.012, 0.05, 0.012);
-  addBox(-0.14, 0.04, -0.08, 0.012, 0.05, 0.012);
-  addBox(0.02, 0.04, 0.08, 0.012, 0.05, 0.012);
-  addBox(0.02, 0.04, -0.08, 0.012, 0.05, 0.012);
-  addBox(0.18, 0.04, 0.08, 0.012, 0.05, 0.012);
-  addBox(0.18, 0.04, -0.08, 0.012, 0.05, 0.012);
-
-  // Approach ramps (tapered)
-  addTaper(-0.40, -0.01, 0, 0.08, 0.04, 0.22, 0.12, 0.03, 0.23);
-  addTaper( 0.40, -0.01, 0, 0.08, 0.04, 0.22, 0.12, 0.03, 0.23);
+  // Suspender cables (from arch to deck)
+  var cablePositions = [-0.22, -0.14, -0.06, 0.02, 0.10, 0.18, 0.26];
+  for (var c = 0; c < cablePositions.length; c++) {
+    var cx = cablePositions[c];
+    var t = (cx + archSpan/2) / archSpan;
+    var archY = archHeight * (1 - (2*t - 1) * (2*t - 1));
+    var cableBaseV = verts.length / 3;
+    var r = 0.004;
+    for (var s = 0; s <= 6; s++) {
+      var angle = s * 2 * Math.PI / 6;
+      var cosA = Math.cos(angle), sinA = Math.sin(angle);
+      verts.push(cx + r * cosA, 0.04, 0.06 + r * sinA); norms.push(cosA, 0, sinA);
+      verts.push(cx + r * cosA, archY, 0.06 + r * sinA); norms.push(cosA, 0, sinA);
+      verts.push(cx + r * cosA, 0.04, -0.06 + r * sinA); norms.push(cosA, 0, sinA);
+      verts.push(cx + r * cosA, archY, -0.06 + r * sinA); norms.push(cosA, 0, sinA);
+    }
+    for (var s = 0; s < 6; s++) {
+      var a = cableBaseV + s * 4, b = a + 4;
+      faces.push(a, b, a+1, a+1, b, b+1);
+      faces.push(a+2, a+3, b+2, a+3, b+3, b+2);
+    }
+  }
 
   return { vertices: verts, faces: faces, normals: norms };
 };
@@ -1381,76 +1596,199 @@ WindTunnelApp.prototype.createBridge = function () {
 WindTunnelApp.prototype.createAirplane = function () {
   var verts = [], faces = [], norms = [];
 
-  // Helper: add a tapered box (frustum)
-  function addTaper(cx,cy,cz,sx1,sy1,sz1,sx2,sy2,sz2) {
-    var v=verts.length/3;
-    var x0=cx-sx1/2,x1=cx+sx1/2,x2=cx-sx2/2,x3=cx+sx2/2;
-    var y0=cy-sy1/2,y1=cy+sy1/2,y2=cy-sy2/2,y3=cy+sy2/2;
-    var z0=cz-sz1/2,z1=cz+sz1/2,z2=cz-sz2/2,z3=cz+sz2/2;
-    verts.push(x0,y0,z0, x1,y0,z0, x1,y1,z0, x0,y1,z0,
-               x2,y2,z2, x3,y2,z2, x3,y3,z2, x2,y3,z2);
-    var bf=[[v,v+1,v+2,v,v+2,v+3],[v+4,v+6,v+5,v+4,v+7,v+6],
-            [v,v+3,v+7,v,v+7,v+4],[v+1,v+5,v+6,v+1,v+6,v+2],
-            [v+3,v+2,v+6,v+3,v+6,v+7],[v,v+4,v+5,v,v+5,v+1]];
-    for (var fi=0;fi<6;fi++) faces.push(bf[fi][0],bf[fi][1],bf[fi][2],bf[fi][3],bf[fi][4],bf[fi][5]);
-    // Compute face normals
-    for (var fi=0;fi<6;fi++) {
-      var i0=bf[fi][0]*3,i1=bf[fi][1]*3,i2=bf[fi][2]*3;
-      var e1x=verts[i1]-verts[i0],e1y=verts[i1+1]-verts[i0+1],e1z=verts[i1+2]-verts[i0+2];
-      var e2x=verts[i2]-verts[i0],e2y=verts[i2+1]-verts[i0+1],e2z=verts[i2+2]-verts[i0+2];
-      var nx=e1y*e2z-e1z*e2y,ny=e1z*e2x-e1x*e2z,nz=e1x*e2y-e1y*e2x;
-      var len=Math.sqrt(nx*nx+ny*ny+nz*nz)||1;
-      for (var ni=0;ni<6;ni++) norms.push(nx/len,ny/len,nz/len);
+  // Smooth fuselage: generate as revolution surface along X axis
+  function addSmoothFuselage(profileX, profileR, nSlices, cx, cy, cz, scaleY, scaleZ) {
+    var nP = profileX.length;
+    var baseV = verts.length / 3;
+    for (var s = 0; s <= nSlices; s++) {
+      var angle = s * 2 * Math.PI / nSlices;
+      var cosA = Math.cos(angle), sinA = Math.sin(angle);
+      for (var p = 0; p < nP; p++) {
+        var px = profileX[p];
+        var r = profileR[p];
+        var wx = cx + px;
+        var wy = cy + r * scaleY * cosA;
+        var wz = cz + r * scaleZ * sinA;
+        verts.push(wx, wy, wz);
+        // Normal: radial from centerline
+        var nx = 0, ny = cosA, nz = sinA;
+        var len = Math.sqrt(nx*nx+ny*ny+nz*nz) || 1;
+        norms.push(nx/len, ny/len, nz/len);
+      }
+    }
+    for (var s = 0; s < nSlices; s++) {
+      for (var p = 0; p < nP - 1; p++) {
+        var a = baseV + s * nP + p;
+        var b = a + nP;
+        var c = a + 1;
+        var d = b + 1;
+        faces.push(a, b, c, c, b, d);
+      }
     }
   }
 
-  function addBox(cx,cy,cz,sx,sy,sz) { addTaper(cx,cy,cz,sx,sy,sz,sx,sy,sz); }
+  // Fuselage profile (X position, radius)
+  var fuselageX = [-0.42, -0.38, -0.32, -0.24, -0.16, -0.08, 0.0, 0.08, 0.16, 0.24, 0.30, 0.34, 0.36];
+  var fuselageR = [0.015, 0.03, 0.045, 0.055, 0.06, 0.062, 0.063, 0.062, 0.058, 0.05, 0.04, 0.025, 0.01];
+  addSmoothFuselage(fuselageX, fuselageR, 16, 0, 0, 0, 1.0, 1.0);
 
-  // Fuselage segments (tapered from nose to tail)
-  addTaper(-0.42, 0, 0, 0.04, 0.03, 0.03, 0.10, 0.06, 0.06);   // nose tip
-  addTaper(-0.34, 0, 0, 0.10, 0.06, 0.06, 0.14, 0.075, 0.075); // nose mid
-  addTaper(-0.22, 0, 0, 0.14, 0.075, 0.075, 0.18, 0.08, 0.08); // front fuselage
-  addTaper(-0.06, 0, 0, 0.18, 0.08, 0.08, 0.20, 0.08, 0.08);  // center fuselage
-  addTaper( 0.10, 0, 0, 0.20, 0.08, 0.08, 0.18, 0.075, 0.075); // mid fuselage
-  addTaper( 0.24, 0, 0, 0.18, 0.075, 0.075, 0.12, 0.06, 0.06); // rear fuselage
-  addTaper( 0.34, 0, 0, 0.12, 0.06, 0.06, 0.06, 0.04, 0.04);  // tail cone
+  // Cockpit canopy (dome on top)
+  var canopyX = [-0.20, -0.14, -0.08, -0.02, 0.04];
+  var canopyR = [0.02, 0.03, 0.035, 0.03, 0.015];
+  var canopyBaseV = verts.length / 3;
+  var nCanopySlices = 12;
+  for (var s = 0; s <= nCanopySlices; s++) {
+    var angle = s * Math.PI / nCanopySlices; // Only top half
+    var cosA = Math.cos(angle);
+    for (var p = 0; p < canopyX.length; p++) {
+      var px = canopyX[p];
+      var r = canopyR[p];
+      var wy = 0.06 + r * Math.max(0, cosA);
+      var wz = r * Math.sin(angle);
+      verts.push(px, wy, wz);
+      norms.push(0, cosA, Math.sin(angle));
+    }
+  }
+  var nCP = canopyX.length;
+  for (var s = 0; s < nCanopySlices; s++) {
+    for (var p = 0; p < nCP - 1; p++) {
+      var a = canopyBaseV + s * nCP + p;
+      var b = a + nCP;
+      var c = a + 1;
+      var d = b + 1;
+      faces.push(a, b, c, c, b, d);
+    }
+  }
 
-  // Cockpit canopy (smooth bubble)
-  addBox(-0.18, 0.05, 0, 0.16, 0.04, 0.06);
-  addTaper(-0.22, 0.048, 0, 0.04, 0.025, 0.05, 0.06, 0.035, 0.058);
-  addTaper(-0.12, 0.048, 0, 0.06, 0.035, 0.058, 0.04, 0.02, 0.04);
+  // Main wings (swept, with airfoil cross-section)
+  function addWing(zPos, spanDir) {
+    var wingX = [-0.08, -0.04, 0.0, 0.04, 0.08, 0.12];
+    var wingChord = [0.12, 0.14, 0.15, 0.14, 0.12, 0.08];
+    var wingThick = [0.015, 0.018, 0.02, 0.018, 0.015, 0.01];
+    var sweepAngle = 0.3; // radians
+    var nSpan = 8;
+    var spanLength = 0.22;
+    var baseV2 = verts.length / 3;
+    for (var sp = 0; sp <= nSpan; sp++) {
+      var t = sp / nSpan;
+      var z = zPos + spanDir * t * spanLength;
+      var sweepOffset = t * spanLength * Math.tan(sweepAngle);
+      for (var p = 0; p < wingX.length; p++) {
+        var px = wingX[p] + sweepOffset;
+        var chord = wingChord[p] * (1 - t * 0.4);
+        var thick = wingThick[p] * (1 - t * 0.5);
+        var py = thick * 0.5;
+        verts.push(px, py, z);
+        norms.push(0, 1, 0);
+      }
+      for (var p = wingX.length - 1; p >= 0; p--) {
+        var px = wingX[p] + sweepOffset;
+        var chord = wingChord[p] * (1 - t * 0.4);
+        var thick = wingThick[p] * (1 - t * 0.5);
+        var py = -thick * 0.5;
+        verts.push(px, py, z);
+        norms.push(0, -1, 0);
+      }
+    }
+    var nWP = wingX.length * 2;
+    for (var sp = 0; sp < nSpan; sp++) {
+      for (var p = 0; p < nWP - 1; p++) {
+        var a = baseV2 + sp * nWP + p;
+        var b = a + nWP;
+        var c = a + 1;
+        var d = b + 1;
+        faces.push(a, b, c, c, b, d);
+      }
+      // Close the loop
+      var a = baseV2 + sp * nWP + nWP - 1;
+      var b = a + nWP;
+      var c = baseV2 + sp * nWP;
+      var d = c + nWP;
+      faces.push(a, b, c, c, b, d);
+    }
+  }
+  addWing(0.04, 1);
+  addWing(-0.04, -1);
 
-  // Main wings (swept, tapered)
-  addTaper(0.02, 0, 0.14, 0.22, 0.014, 0.16, 0.14, 0.010, 0.10);
-  addTaper(0.02, 0, 0.28, 0.14, 0.010, 0.10, 0.08, 0.008, 0.06);
-  addTaper(0.02, 0, -0.14, 0.22, 0.014, 0.16, 0.14, 0.010, 0.10);
-  addTaper(0.02, 0, -0.28, 0.14, 0.010, 0.10, 0.08, 0.008, 0.06);
+  // Tail vertical stabilizer
+  var tailFinX = [0.24, 0.28, 0.32, 0.34];
+  var tailFinH = [0.0, 0.06, 0.10, 0.08];
+  var tailFinBaseV = verts.length / 3;
+  for (var p = 0; p < tailFinX.length; p++) {
+    verts.push(tailFinX[p], 0.04, 0.0); norms.push(0, 0, 1);
+    verts.push(tailFinX[p], 0.04 + tailFinH[p], 0.0); norms.push(0, 0, 1);
+    verts.push(tailFinX[p], 0.04, 0.006); norms.push(0, 0, -1);
+    verts.push(tailFinX[p], 0.04 + tailFinH[p], 0.006); norms.push(0, 0, -1);
+  }
+  for (var p = 0; p < tailFinX.length - 1; p++) {
+    var a = tailFinBaseV + p * 4, b = a + 4, c = a + 1, d = a + 5;
+    faces.push(a, b, c, c, b, d);
+    a += 2; b += 2; c = a + 1; d = a + 5;
+    faces.push(a, b, c, c, b, d);
+  }
 
-  // Wing tips (upward curve)
-  addBox(0.04, 0.02, 0.34, 0.06, 0.025, 0.02);
-  addBox(0.04, 0.02, -0.34, 0.06, 0.025, 0.02);
+  // Tail horizontal stabilizers
+  function addHStab(zPos, spanDir) {
+    var hstabX = [0.26, 0.30, 0.34];
+    var hstabChord = [0.06, 0.05, 0.03];
+    var nSpan2 = 4;
+    var spanLen = 0.10;
+    var baseV3 = verts.length / 3;
+    for (var sp = 0; sp <= nSpan2; sp++) {
+      var t = sp / nSpan2;
+      var z = zPos + spanDir * t * spanLen;
+      for (var p = 0; p < hstabX.length; p++) {
+        var px = hstabX[p] + t * 0.03;
+        var py = 0.02 + 0.005 * (1 - t);
+        verts.push(px, py, z);
+        norms.push(0, 1, 0);
+        verts.push(px, py - 0.008, z);
+        norms.push(0, -1, 0);
+      }
+    }
+    var nHP = hstabX.length * 2;
+    for (var sp = 0; sp < nSpan2; sp++) {
+      for (var p = 0; p < nHP - 1; p++) {
+        var a = baseV3 + sp * nHP + p;
+        var b = a + nHP;
+        var c = a + 1;
+        var d = b + 1;
+        faces.push(a, b, c, c, b, d);
+      }
+    }
+  }
+  addHStab(0.02, 1);
+  addHStab(-0.02, -1);
 
-  // Tail vertical stabilizer (tapered)
-  addTaper(0.30, 0.04, 0, 0.04, 0.06, 0.012, 0.10, 0.10, 0.014);
-  addTaper(0.28, 0.02, 0, 0.06, 0.03, 0.010, 0.04, 0.06, 0.012);
-
-  // Tail horizontal stabilizer (swept)
-  addTaper(0.30, 0.02, 0.08, 0.10, 0.010, 0.08, 0.06, 0.008, 0.04);
-  addTaper(0.30, 0.02, -0.08, 0.10, 0.010, 0.08, 0.06, 0.008, 0.04);
-
-  // Engine nacelles (tapered cylinders)
-  addTaper(-0.04, -0.045, 0.16, 0.06, 0.04, 0.04, 0.10, 0.05, 0.05);
-  addTaper(-0.04, -0.045, -0.16, 0.06, 0.04, 0.04, 0.10, 0.05, 0.05);
-  // Engine inlets
-  addBox(-0.08, -0.045, 0.16, 0.02, 0.045, 0.045);
-  addBox(-0.08, -0.045, -0.16, 0.02, 0.045, 0.045);
-  // Engine pylons
-  addBox(-0.03, -0.025, 0.16, 0.025, 0.02, 0.012);
-  addBox(-0.03, -0.025, -0.16, 0.025, 0.02, 0.012);
-
-  // Wing root fairings
-  addBox(0.02, -0.01, 0.10, 0.18, 0.025, 0.04);
-  addBox(0.02, -0.01, -0.10, 0.18, 0.025, 0.04);
+  // Engine nacelles (smooth cylinders under wings)
+  function addEngine(cx, cy, cz) {
+    var eX = [-0.06, -0.02, 0.02, 0.06, 0.08];
+    var eR = [0.025, 0.03, 0.032, 0.03, 0.02];
+    var nESlices = 10;
+    var baseVE = verts.length / 3;
+    for (var s = 0; s <= nESlices; s++) {
+      var angle = s * 2 * Math.PI / nESlices;
+      var cosA = Math.cos(angle), sinA = Math.sin(angle);
+      for (var p = 0; p < eX.length; p++) {
+        var px = eX[p];
+        var r = eR[p];
+        verts.push(cx + px, cy + r * cosA, cz + r * sinA);
+        norms.push(0, cosA, sinA);
+      }
+    }
+    var nEP = eX.length;
+    for (var s = 0; s < nESlices; s++) {
+      for (var p = 0; p < nEP - 1; p++) {
+        var a = baseVE + s * nEP + p;
+        var b = a + nEP;
+        var c = a + 1;
+        var d = b + 1;
+        faces.push(a, b, c, c, b, d);
+      }
+    }
+  }
+  addEngine(-0.02, -0.05, 0.14);
+  addEngine(-0.02, -0.05, -0.14);
 
   return { vertices: verts, faces: faces, normals: norms };
 };
